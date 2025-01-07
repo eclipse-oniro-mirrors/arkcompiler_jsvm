@@ -1,0 +1,236 @@
+/*
+ * Copyright (c) 2024 Huawei Device Co., Ltd.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+static std::string SourceMapRunner = R"JS(
+let base64Map;
+const VLQ_BASE_SHIFT = 5;
+const VLQ_BASE_MASK = (1 << 5) - 1;
+const VLQ_CONTINUATION_MASK = 1 << 5;
+class StringCharIterator {
+    constructor(string) {
+        this._string = string;
+        this._position = 0
+    }
+    next() {
+        return this._string.charAt(this._position++)
+    }
+    peek() {
+        return this._string.charAt(this._position)
+    }
+    hasNext() {
+        return this._position < this._string.length
+    }
+}
+class SourceMap {
+    #payload;
+    #mappings = [];
+    #sources = {};
+    #sourceContentByURL = {};
+    constructor(payload) {
+        if (!base64Map) {
+            const base64Digits = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+            base64Map = {};
+            for (let i = 0; i < base64Digits.length; ++i) base64Map[base64Digits[i]] = i
+        }
+        this.#payload = cloneSourceMapV3(payload);
+        this.#parseMappingPayload()
+    }
+    get payload() {
+        return cloneSourceMapV3(this.#payload)
+    }
+    #parseMappingPayload = () => {
+        if (this.#payload.sections) {
+            this.#parseSections(this.#payload.sections)
+        } else {
+            this.#parseMap(this.#payload, 0, 0)
+        }
+        this.#mappings.sort(compareSourceMapEntry)
+    };
+    #parseSections = (sections) => {
+        for (let i = 0; i < sections.length; ++i) {
+            const section = sections[i];
+            this.#parseMap(section.map, section.offset.line, section.offset.column)
+        }
+    };
+    findEntry(lineOffset, columnOffset) {
+        let first = 0;
+        let count = this.#mappings.length;
+        while (count > 1) {
+            const step = count >> 1;
+            const middle = first + step;
+            const mapping = this.#mappings[middle];
+            if (lineOffset < mapping[0] || (lineOffset === mapping[0] && columnOffset < mapping[1])) {
+                count = step
+            } else {
+                first = middle;
+                count -= step
+            }
+        }
+        const entry = this.#mappings[first];
+        if (!first && entry && (lineOffset < entry[0] || (lineOffset === entry[0] && columnOffset < entry[1]))) {
+            return {}
+        } else if (!entry) {
+            return {}
+        }
+        return {
+            generatedLine: entry[0],
+            generatedColumn: entry[1],
+            originalSource: entry[2],
+            originalLine: entry[3],
+            originalColumn: entry[4],
+            name: entry[5],
+        }
+    }
+    findOrigin(lineNumber, columnNumber) {
+        const range = this.findEntry(lineNumber - 1, columnNumber - 1);
+        if (range.originalSource === undefined || range.originalLine === undefined || range.originalColumn === undefined || range.generatedLine === undefined || range.generatedColumn === undefined) {
+            return {}
+        }
+        const lineOffset = lineNumber - range.generatedLine;
+        const columnOffset = columnNumber - range.generatedColumn;
+        return {
+            name: range.name,
+            fileName: range.originalSource,
+            lineNumber: range.originalLine + lineOffset,
+            columnNumber: range.originalColumn + columnOffset,
+        }
+    }
+    #parseMap(map, lineNumber, columnNumber) {
+        let sourceIndex = 0;
+        let sourceLineNumber = 0;
+        let sourceColumnNumber = 0;
+        let nameIndex = 0;
+        const sources = [];
+        const originalToCanonicalURLMap = {};
+        for (let i = 0; i < map.sources.length; ++i) {
+            const url = map.sources[i];
+            originalToCanonicalURLMap[url] = url;
+            sources.push(url);
+            this.#sources[url] = true;
+            if (map.sourcesContent && map.sourcesContent[i]) this.#sourceContentByURL[url] = map.sourcesContent[i]
+        }
+        const stringCharIterator = new StringCharIterator(map.mappings);
+        let sourceURL = sources[sourceIndex];
+        while (true) {
+            if (stringCharIterator.peek() === ',') stringCharIterator.next();
+            else {
+                while (stringCharIterator.peek() === ';') {
+                    lineNumber += 1;
+                    columnNumber = 0;
+                    stringCharIterator.next()
+                }
+                if (!stringCharIterator.hasNext()) break
+            }
+            columnNumber += decodeVLQ(stringCharIterator);
+            if (isSeparator(stringCharIterator.peek())) {
+                this.#mappings.push([lineNumber, columnNumber]);
+                continue
+            }
+            const sourceIndexDelta = decodeVLQ(stringCharIterator);
+            if (sourceIndexDelta) {
+                sourceIndex += sourceIndexDelta;
+                sourceURL = sources[sourceIndex]
+            }
+            sourceLineNumber += decodeVLQ(stringCharIterator);
+            sourceColumnNumber += decodeVLQ(stringCharIterator);
+            let name;
+            if (!isSeparator(stringCharIterator.peek())) {
+                nameIndex += decodeVLQ(stringCharIterator);
+                name = map.names?.[nameIndex]
+            }
+            this.#mappings.push([lineNumber, columnNumber, sourceURL, sourceLineNumber, sourceColumnNumber, name], )
+        }
+    }
+}
+
+function isSeparator(a) {
+    return a === ',' || a === ';'
+}
+
+function decodeVLQ(a) {
+    let result = 0;
+    let shift = 0;
+    let digit;
+    do {
+        digit = base64Map[a.next()];
+        result += (digit & VLQ_BASE_MASK) << shift;
+        shift += VLQ_BASE_SHIFT
+    } while (digit & VLQ_CONTINUATION_MASK);
+    const negative = result & 1;
+    result >>>= 1;
+    if (!negative) {
+        return result
+    }
+    return -result | (1 << 31)
+}
+
+function cloneSourceMapV3(a) {
+    a = {
+        ...payload
+    };
+    for (const key in a) {
+        if (Object.prototype.hasOwnProperty.call(a, key) && Array.isArray(a[key])) {
+            a[key] = a[key].slice()
+        }
+    }
+    return a
+}
+
+function compareSourceMapEntry(a, b) {
+    const {
+        0: lineNumber1,
+        1: columnNumber1
+    } = a;
+    const {
+        0: lineNumber2,
+        1: columnNumber2
+    } = b;
+    if (lineNumber1 !== lineNumber2) {
+        return lineNumber1 - lineNumber2
+    }
+    return columnNumber1 - columnNumber2
+}
+result = function(a, b, c) {
+    try {
+        const payload = JSON.parse(c) const sm = new SourceMap(payload) const preparedStack = b.map((t, i) => {
+            const str = i !== 0 ? '\n    at ' : '';
+            const {
+                originalLine,
+                originalColumn,
+                originalSource,
+            } = sm.findEntry(t.getLineNumber() - 1, t.getColumnNumber() - 1);
+            if (originalSource && originalLine !== undefined && originalColumn !== undefined) {
+                let fileName = t.getFileName();
+                if (fileName === undefined) {
+                    fileName = t.getEvalOrigin()
+                }
+                const fnName = t.getFunctionName() ?? t.getMethodName();
+                const typeName = t.getTypeName();
+                const namePrefix = typeName !== null && typeName !== 'global' ? `${typeName}.` : '';
+                const originalName = `${namePrefix}${fnName||'<anonymous>'}`;
+                const hasName = !!originalName;
+                return `${str}${originalName}${hasName?' (':''}` + `${originalSource}:${originalLine+1}:` + `${originalColumn+1}${hasName?')':''}`
+            }
+            return `${str}${t}`
+        }).join('');
+        return `${a}\n at ${preparedStack}`
+    } catch (e) {
+        const originStack = b.map((t, i) => {
+            const str = i !== 0 ? '\n    at ' : '';
+            return `${str}${t}`
+        }).join('') return `${a}\n at ${originStack}`
+    }
+}
+)JS";

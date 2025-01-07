@@ -70,4 +70,13 @@ namespace v8impl {
 template<typename T>
 using Persistent = v8::Global<T>;
 } // namespace v8impl
+
+enum ByteSize : uint8_t {
+    SIZE_0_BYTES = 0,
+    SIZE_1_BYTES = 1,
+    SIZE_2_BYTES = 2,
+    SIZE_4_BYTES = 4,
+    SIZE_8_BYTES = 8,
+};
+
 #endif
