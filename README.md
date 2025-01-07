@@ -1,25 +1,38 @@
 # arkcompiler_jsvm_longque
 
 #### 介绍
-{**以下是 Gitee 平台说明，您可以替换此简介**
-Gitee 是 OSCHINA 推出的基于 Git 的代码托管平台（同时支持 SVN）。专为开发者提供稳定、高效、安全的云端软件开发协作平台
-无论是个人、团队、或是企业，都能够用 Gitee 实现代码托管、项目管理、协作开发。企业项目请看 [https://gitee.com/enterprises](https://gitee.com/enterprises)}
+OpenHarmony JSVM-API是基于标准JS引擎提供的一套稳定的API，为开发者提供了较为完整的JS引擎能力，包括创建和销毁引擎，执行JS代码，JS/C++交互等关键能力。
 
-#### 软件架构
-软件架构说明
+OpenHarmony JSVM-API是C语言接口，遵循C99标准。
 
+通过JSVM-API，开发者可以在应用运行期间直接执行一段动态加载的JS代码。也可以选择将一些对性能、底层系统调用有较高要求的核心功能用C/C++实现并将C++方法注册到JS侧，在JS代码中直接调用，提高应用的执行效率。
+
+#### 目录结构
+```
+/arkcompiler/jsvm_longque
+├── interfaces
+│ ├── innerkits             # 系统内接口，部件间使用
+│ └── kits                  # 应用接口，应用开发者使用
+├── src                     # jsvm 代码
+│ ├── inspector             # inspector 功能实现
+│ └── platform              # 平台相关代码
+├── test                    # jsvm 测试套
+├── BUILD.gn                # 部件编译脚本
+├── jsvm.gni                # jsvm 源文件定义脚本
+└── bundle.json             # 部件配置文件
+```
 
 #### 安装教程
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+1. 编译命令
+
+```
+./build.sh --product-name rk3568 --build-target make_all --target-cpu arm64 --gn-args enable_notice_collection=false --keep-ninja-going
+```
 
 #### 使用说明
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+[使用JSVM-API实现JS与C/C++语言交互](https://gitee.com/openharmony/docs/tree/master/zh-cn/application-dev/napi/Readme-CN.md)
 
 #### 参与贡献
 
@@ -28,12 +41,3 @@ Gitee 是 OSCHINA 推出的基于 Git 的代码托管平台（同时支持 SVN�
 3.  提交代码
 4.  新建 Pull Request
 
-
-#### 特技
-
-1.  使用 Readme\_XXX.md 来支持不同的语言，例如 Readme\_en.md, Readme\_zh.md
-2.  Gitee 官方博客 [blog.gitee.com](https://blog.gitee.com)
-3.  你可以 [https://gitee.com/explore](https://gitee.com/explore) 这个地址来了解 Gitee 上的优秀开源项目
-4.  [GVP](https://gitee.com/gvp) 全称是 Gitee 最有价值开源项目，是综合评定出的优秀开源项目
-5.  Gitee 官方提供的使用手册 [https://gitee.com/help](https://gitee.com/help)
-6.  Gitee 封面人物是一档用来展示 Gitee 会员风采的栏目 [https://gitee.com/gitee-stars/](https://gitee.com/gitee-stars/)

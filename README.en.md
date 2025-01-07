@@ -1,22 +1,39 @@
 # arkcompiler_jsvm_longque
 
 #### Description
-{**When you're done, you can delete the content in this README and update the file with details for others getting started with your repository**}
+OpenHarmony JSVM-API provides a set of stable APIs based on the standard JavaScript (JS) engine. It provides complete JS engine capabilities, including creating and destroying a JS engine, executing JS code, and implementing interaction between JS and C/C++ modules.
 
-#### Software Architecture
-Software architecture description
+OpenHarmony JSVM-API provides a set of APIs written in C programming language that complies with C99.
+
+JSVM-API allows dynamically loaded JS code segment to be directly run during application runtime. With JSVM-API, you can also use C/C++ to implement core functionalities that demand high performance or closely rely on underlying system invocation, register C++ methods in JS code, and directly call the JS code to improve the execution speed.
+
+#### Directory Structure
+
+```
+/arkcompiler/jsvm_longque
+├── interfaces
+│ ├── innerkits             # interface used in system component
+│ └── kits                  # interface provided to app developer
+├── src                     # jsvm source code
+│ ├── inspector             # source code about inspector
+│ └── platform              # source code related to platform
+├── test                    # jsvm test suit
+├── BUILD.gn                # jsvm compile script
+├── jsvm.gni                # jsvm compile script
+└── bundle.json             # jsvm config file
+```
 
 #### Installation
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+1.  compile command
+
+```
+./build.sh --product-name rk3568 --build-target make_all --target-cpu arm64 --gn-args enable_notice_collection=false --keep-ninja-going
+```
 
 #### Instructions
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+[Using JSVM-API](https://gitee.com/openharmony/docs/tree/master/zh-cn/application-dev/napi/Readme-CN.md)
 
 #### Contribution
 
@@ -25,12 +42,3 @@ Software architecture description
 3.  Commit your code
 4.  Create Pull Request
 
-
-#### Gitee Feature
-
-1.  You can use Readme\_XXX.md to support different languages, such as Readme\_en.md, Readme\_zh.md
-2.  Gitee blog [blog.gitee.com](https://blog.gitee.com)
-3.  Explore open source project [https://gitee.com/explore](https://gitee.com/explore)
-4.  The most valuable open source project [GVP](https://gitee.com/gvp)
-5.  The manual of Gitee [https://gitee.com/help](https://gitee.com/help)
-6.  The most popular members  [https://gitee.com/gitee-stars/](https://gitee.com/gitee-stars/)
