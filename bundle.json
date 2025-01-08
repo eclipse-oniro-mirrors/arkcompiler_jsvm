@@ -1,0 +1,56 @@
+{
+    "name": "@ohos/jsvm_longque",
+    "description": "jsvm_longque is a Javascript virtual machine in ohos",
+    "version": "1.0",
+    "license": "Apache 2.0",
+    "publishAs": "code-segment",
+    "segment": {
+        "destPath": "arkcompiler/jsvm_longque"
+    },
+    "dirs": {},
+    "scripts": {},
+    "component": {
+        "name": "jsvm_longque",
+        "subsystem": "arkcompiler",
+        "syscap": [
+            "SystemCapability.ArkCompiler.JSVM"
+        ],
+        "features": [],
+        "adapted_system_type": [
+            "standard"
+        ],
+        "rom": "5120KB",
+        "ram": "10240KB",
+        "deps": {
+            "components": [
+                "bounds_checking_function",
+                "hilog",
+                "hisysevent",
+                "hitrace",
+                "hiview",
+                "icu",
+                "init",
+                "libuv",
+                "resource_schedule_service"
+            ]
+        },
+        "build": {
+            "sub_component": [
+                "//arkcompiler/jsvm_longque:jsvm_package"
+            ],
+            "inner_kits": [
+                {
+                    "header": {
+                        "header_base": "//arkcompiler/jsvm_longque/interfaces/kits",
+                        "header_files": [
+                            "jsvm_types.h",
+                            "jsvm.h"
+                        ]
+                    },
+                    "name": "//arkcompiler/jsvm_longque:jsvm_package"
+                }
+            ],
+            "test": []
+        }
+    }
+}
