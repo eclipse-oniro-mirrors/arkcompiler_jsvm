@@ -12,3 +12,188 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+import("//build/config/clang/clang.gni")
+import("//build/ohos.gni")
+import("jsvm.gni")
+
+config("libv8_config") {
+  include_dirs =
+      [ "//vendor/huawei/binary/artifacts/js_engine_url/v8-include/v8-include" ]
+}
+
+ohos_prebuilt_shared_library("libv8") {
+  source = "//vendor/huawei/binary/artifacts/js_engine_url/libv8_shared.so"
+  output = "libv8_shared.so"
+  public_configs = [ ":libv8_config" ]
+
+  subsystem_name = "arkcompiler"
+  part_name = "jsvm_longque"
+
+  install_enable = true
+  install_images = [ "system" ]
+  innerapi_tags = [ "ndk" ]
+}
+
+config("llhttp_config") {
+  include_dirs = [ "//third_party/nghttp2/third-party/llhttp/include" ]
+}
+
+ohos_static_library("llhttp") {
+  sources = [
+    "//third_party/nghttp2/third-party/llhttp/src/api.c",
+    "//third_party/nghttp2/third-party/llhttp/src/http.c",
+    "//third_party/nghttp2/third-party/llhttp/src/llhttp.c",
+  ]
+
+  public_configs = [ ":llhttp_config" ]
+
+  subsystem_name = "arkcompiler"
+  part_name = "jsvm_longque"
+}
+
+config("jsvm_common_config") {
+  cflags = [
+    "-fstack-protector-strong",
+    "--target=aarch64-linux-ohos",
+    "-march=armv8-a",
+    "-mfpu=neon",
+    "-m64",
+    "-msign-return-address=all",
+    "-pthread",
+    "-Wall",
+    "-Wextra",
+    "-Wno-unused-parameter",
+    "-fPIC",
+    "-Werror=unused-result",
+    "-O3",
+    "-fno-omit-frame-pointer",
+    "-fno-rtti",
+    "-fno-exceptions",
+    "-std=gnu++17",
+    "-fvisibility=hidden",
+  ]
+
+  ldflags = [ "-fvisibility=hidden" ]
+
+  defines = []
+  if (use_platform_ohos && is_ohos) {
+    defines += [
+      "TARGET_OHOS",
+      "ENABLE_HISYSEVENT",
+    ]
+  }
+
+  if (enable_debug) {
+    cflags += [ "-g" ]
+    defines += [ "DEBUG" ]
+  }
+
+  defines += [
+    "_GLIBCXX_USE_CXX11_ABI=1",
+    "__STDC_FORMAT_MACROS",
+    "__POSIX__",
+  ]
+
+  include_dirs = [
+    "interface/innerkits",
+    "interface/kits",
+    "src",
+    "//base/hiviewdfx/hisysevent/interfaces/native/innerkits/hisysevent/include",
+  ]
+}
+
+config("jsvm_inspector_config") {
+  defines = [
+    "ENABLE_INSPECTOR",
+    "HAVE_OPENSSL=1",
+  ]
+}
+
+ohos_source_set("jsvm_inspector") {
+  sources = jsvm_inspector_sources
+  include_dirs = [ "inspector" ]
+
+  configs = [
+    ":jsvm_common_config",
+    ":jsvm_inspector_config",
+  ]
+
+  subsystem_name = "arkcompiler"
+  part_name = "jsvm_longque"
+
+  deps = [
+    ":libv8",
+    ":llhttp",
+  ]
+
+  external_deps = [
+    "bounds_checking_function:libsec_static",
+    "icu:shared_icui18n",
+    "icu:shared_icuuc",
+    "openssl:libcrypto_shared",
+    "openssl:libssl_shared",
+    "zlib:libz",
+  ]
+
+  if (jsvm_shared_libuv) {
+    external_deps += [ "libuv:uv" ]
+  } else {
+    external_deps += [ "libuv:uv_static" ]
+  }
+}
+
+config("libjsvm_config") {
+  defines = []
+  if (enable_inspector) {
+    defines += [
+      "ENABLE_INSPECTOR",
+      "HAVE_OPENSSL=1",
+    ]
+  }
+}
+
+ohos_shared_library("libjsvm") {
+  sources = jsvm_sources
+  if (use_platform_ohos && is_ohos) {
+    sources += [ "src/platform/platform_ohos.cpp" ]
+  } else {
+    sources += [ "src/platform/platform.cpp" ]
+  }
+  configs = [
+    ":jsvm_common_config",
+    ":libjsvm_config",
+  ]
+
+  deps = [ ":libv8" ]
+  if (enable_inspector) {
+    deps += [ ":jsvm_inspector" ]
+  }
+
+  external_deps = []
+
+  if (use_platform_ohos && is_ohos) {
+    external_deps += [
+      "bounds_checking_function:libsec_static",
+      "hilog:libhilog",
+      "hisysevent:libhisysevent",
+      "hitrace:hitrace_meter",
+      "init:libbegetutil",
+      "resource_schedule_service:ressched_client",
+    ]
+  }
+
+  output_name = "libjsvm"
+  output_extension = "so"
+
+  subsystem_name = "arkcompiler"
+  part_name = "jsvm_longque"
+
+  install_enable = true
+  install_images = [ "system" ]
+  innerapi_tags = [ "ndk" ]
+}
+
+group("jsvm_packages") {
+  deps = [ ":libjsvm" ]
+}
