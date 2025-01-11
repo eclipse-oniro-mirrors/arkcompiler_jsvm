@@ -35,6 +35,7 @@
 #include <sstream>
 #include <unordered_map>
 #include <vector>
+#include <securec.h>
 
 namespace v8impl {
 
@@ -96,7 +97,7 @@ public:
     void Post(std::unique_ptr<Request> request);
     bool WaitForFrontendEvent();
     std::shared_ptr<MainThreadHandle> GetHandle();
-    Agent* inspector_agent()
+    Agent* InspectorAgent()
     {
         return agent;
     }
@@ -137,7 +138,7 @@ private:
 template<typename T>
 std::unique_ptr<Deletable> WrapInDeletable(std::unique_ptr<T> object)
 {
-    return std::unique_ptr<DeletableWrapper<T>>(new DeletableWrapper<T>(std::move(object)));
+    return std::make_unique<DeletableWrapper<T>>(std::move(object));
 }
 
 template<typename Factory>
@@ -158,7 +159,7 @@ private:
 template<typename Factory>
 std::unique_ptr<Request> NewCreateRequest(int objectId, Factory factory)
 {
-    return std::unique_ptr<Request>(new CreateObjectRequest<Factory>(objectId, std::move(factory)));
+    return std::make_unique<CreateObjectRequest<Factory>>(objectId, std::move(factory));
 }
 
 class DeleteRequest : public Request {
@@ -214,7 +215,7 @@ public:
     void Call(Fn fn) const
     {
         using Request = CallRequest<T, Fn>;
-        thread->Post(std::unique_ptr<Request>(new Request(objectId, std::move(fn))));
+        thread->Post(std::make_unique<Request>(objectId, std::move(fn)));
     }
 
     template<typename Arg>
@@ -249,7 +250,7 @@ public:
 
     void Connect(std::unique_ptr<InspectorSessionDelegate> delegate)
     {
-        Agent* agent = thread->inspector_agent();
+        Agent* agent = thread->InspectorAgent();
         if (agent != nullptr) {
             session = agent->Connect(std::move(delegate), preventShutdown);
         }
@@ -466,14 +467,15 @@ std::string GenerateID()
     CHECK(CSPRNG(buffer, sizeof(buffer)));
 
     char uuid[256];
-    snprintf(uuid, sizeof(uuid), "%04x%04x-%04x-%04x-%04x-%04x%04x%04x",
-             buffer[0],                     // time_low
-             buffer[1],                     // time_mid
-             buffer[2],                     // time_low
-             (buffer[3] & 0x0fff) | 0x4000, // time_hi_and_version
-             (buffer[4] & 0x3fff) | 0x8000, // clk_seq_hi clk_seq_low
-             buffer[5],                     // node
-             buffer[6], buffer[7]);
+    int ret = snprintf_s(uuid, sizeof(uuid), sizeof(uuid) - 1, "%04x%04x-%04x-%04x-%04x-%04x%04x%04x",
+                         buffer[0],                     // time_low
+                         buffer[1],                     // time_mid
+                         buffer[2],                     // time_low
+                         (buffer[3] & 0x0fff) | 0x4000, // time_hi_and_version
+                         (buffer[4] & 0x3fff) | 0x8000, // clk_seq_hi clk_seq_low
+                         buffer[5],                     // node
+                         buffer[6], buffer[7]);
+    CHECK(ret >= 0);
     return uuid;
 }
 
@@ -664,10 +666,12 @@ InspectorIoDelegate::InspectorIoDelegate(std::shared_ptr<RequestQueueData> queue
 void InspectorIoDelegate::StartSession(int sessionId, const std::string& inTargetId)
 {
     auto session = mainThread->Connect(
-        std::unique_ptr<InspectorSessionDelegate>(new IoSessionDelegate(requestQueue->GetHandle(), sessionId)), true);
+        std::make_unique<IoSessionDelegate>(requestQueue->GetHandle(), sessionId), true);
     if (session) {
         sessions[sessionId] = std::move(session);
-        fprintf(stderr, "Debugger attached.\n");
+        if (fprintf(stderr, "Debugger attached.\n") < 0) {
+            return;
+        }
     }
 }
 
@@ -766,7 +770,7 @@ std::unique_ptr<InspectorIo> InspectorIo::Start(std::shared_ptr<MainThreadHandle
                                                 std::shared_ptr<ExclusiveAccess<HostPort>> hostPortParam,
                                                 const InspectPublishUid& inspectPublishUid)
 {
-    auto io = std::unique_ptr<InspectorIo>(new InspectorIo(mainThread, path, hostPortParam, inspectPublishUid));
+    auto io = std::make_unique<InspectorIo>(mainThread, path, hostPortParam, inspectPublishUid);
     if (io->requestQueue->Expired()) { // Thread is not running
         return nullptr;
     }
@@ -809,7 +813,8 @@ void InspectorIo::ThreadMain()
     loop.data = nullptr;
     int err = uv_loop_init(&loop);
     CHECK_EQ(err, 0);
-    std::shared_ptr<RequestQueueData> queue(new RequestQueueData(&loop), RequestQueueData::CloseAndFree);
+    std::shared_ptr<RequestQueueData> queue =
+        std::make_shared<RequestQueueData>(&loop, RequestQueueData::CloseAndFree);
     std::string scriptPath = ScriptPath(&loop, scriptName);
     std::unique_ptr<InspectorIoDelegate> delegate(
         new InspectorIoDelegate(queue, mainThread, id, scriptPath, scriptName));
@@ -873,7 +878,6 @@ const int CONTEXT_GROUP_ID = 1;
 std::string GetWorkerLabel(Environment* env)
 {
     std::ostringstream result;
-    // TODO: use thread ID as part of worker label.
     result << "Worker["
            << "env->thread_id()"
            << "]";
@@ -894,15 +898,15 @@ public:
 
     ~ChannelImpl() = default;
 
-    void dispatchProtocolMessage(const StringView& message)
+    void DispatchProtocolMessage(const StringView& message)
     {
-        session->dispatchProtocolMessage(message);
+        session->DispatchProtocolMessage(message);
     }
 
-    void schedulePauseOnNextStatement(const std::string& reason)
+    void SchedulePauseOnNextStatement(const std::string& reason)
     {
         std::unique_ptr<StringBuffer> buffer = Utf8ToStringView(reason);
-        session->schedulePauseOnNextStatement(buffer->string(), buffer->string());
+        session->SchedulePauseOnNextStatement(buffer->string(), buffer->string());
     }
 
     bool PreventShutdown()
@@ -911,26 +915,26 @@ public:
     }
 
 private:
-    void sendResponse(int callId, std::unique_ptr<v8_inspector::StringBuffer> message) override
+    void SendResponse(int callId, std::unique_ptr<v8_inspector::StringBuffer> message) override
     {
-        sendMessageToFrontend(message->string());
+        SendMessageToFrontend(message->string());
     }
 
-    void sendNotification(std::unique_ptr<v8_inspector::StringBuffer> message) override
+    void SendNotification(std::unique_ptr<v8_inspector::StringBuffer> message) override
     {
-        sendMessageToFrontend(message->string());
+        SendMessageToFrontend(message->string());
     }
 
-    void flushProtocolNotifications() override {}
+    void FlushProtocolNotifications() override {}
 
-    void sendMessageToFrontend(const StringView& message)
+    void SendMessageToFrontend(const StringView& message)
     {
         delegate->SendMessageToFrontend(message);
     }
 
-    void sendMessageToFrontend(const std::string& message)
+    void SendMessageToFrontend(const std::string& message)
     {
-        sendMessageToFrontend(Utf8ToStringView(message)->string());
+        SendMessageToFrontend(Utf8ToStringView(message)->string());
     }
 
     std::unique_ptr<InspectorSessionDelegate> delegate;
@@ -961,28 +965,28 @@ public:
         std::string name = isMain ? GetHumanReadableProcessName() : GetWorkerLabel(env);
         ContextInfo info(name);
         info.isDefault = true;
-        contextCreated(env->context(), info);
+        ContextCreated(env->context(), info);
     }
 
-    void runMessageLoopOnPause(int contextGroupId) override
+    void RunMessageLoopOnPause(int contextGroupId) override
     {
         waitingForResume = true;
-        runMessageLoop();
+        RunMessageLoop();
     }
 
-    void waitForSessionsDisconnect()
+    void WaitForSessionsDisconnect()
     {
         waitingForSessionsDisconnect = true;
-        runMessageLoop();
+        RunMessageLoop();
     }
 
-    void waitForFrontend()
+    void WaitForFrontend()
     {
         waitingForFrontend = true;
-        runMessageLoop();
+        RunMessageLoop();
     }
 
-    void maxAsyncCallStackDepthChanged(int depth) override
+    void MaxAsyncCallStackDepthChanged(int depth) override
     {
         if (waitingForSessionsDisconnect) {
             // V8 isolate is mostly done and is only letting Inspector protocol
@@ -991,7 +995,7 @@ public:
         }
     }
 
-    void contextCreated(Local<Context> context, const ContextInfo& info)
+    void ContextCreated(Local<Context> context, const ContextInfo& info)
     {
         auto nameBuffer = Utf8ToStringView(info.name);
         auto originBuffer = Utf8ToStringView(info.origin);
@@ -1007,33 +1011,33 @@ public:
         }
         v8info.auxData = auxDataBuffer->string();
 
-        client->contextCreated(v8info);
+        client->ContextCreated(v8info);
     }
 
-    void contextDestroyed(Local<Context> context)
+    void ContextDestroyed(Local<Context> context)
     {
-        client->contextDestroyed(context);
+        client->ContextDestroyed(context);
     }
 
-    void quitMessageLoopOnPause() override
+    void QuitMessageLoopOnPause() override
     {
         waitingForResume = false;
     }
 
-    void runIfWaitingForDebugger(int contextGroupId) override
+    void RunIfWaitingForDebugger(int contextGroupId) override
     {
         waitingForFrontend = false;
     }
 
-    int connectFrontend(std::unique_ptr<InspectorSessionDelegate> delegate, bool preventShutdown)
+    int ConnectFrontend(std::unique_ptr<InspectorSessionDelegate> delegate, bool preventShutdown)
     {
         int sessionId = nextSessionId++;
         channels[sessionId] =
-            std::make_unique<ChannelImpl>(client, std::move(delegate), getThreadHandle(), preventShutdown);
+            std::make_unique<ChannelImpl>(client, std::move(delegate), GetThreadHandle(), preventShutdown);
         return sessionId;
     }
 
-    void disconnectFrontend(int sessionId)
+    void DisconnectFrontend(int sessionId)
     {
         auto it = channels.find(sessionId);
         if (it == channels.end()) {
@@ -1045,12 +1049,12 @@ public:
         }
     }
 
-    void dispatchMessageFromFrontend(int sessionId, const StringView& message)
+    void DispatchMessageFromFrontend(int sessionId, const StringView& message)
     {
-        channels[sessionId]->dispatchProtocolMessage(message);
+        channels[sessionId]->DispatchProtocolMessage(message);
     }
 
-    Local<Context> ensureDefaultContextInGroup(int contextGroupId) override
+    Local<Context> EnsureDefaultContextInGroup(int contextGroupId) override
     {
         return env->context();
     }
@@ -1069,9 +1073,9 @@ public:
             scriptId = 0;
         }
 
-        const uint8_t DETAILS[] = "Uncaught";
+        const uint8_t details[] = "Uncaught";
 
-        client->exceptionThrown(context, StringView(DETAILS, sizeof(DETAILS) - 1), error,
+        client->exceptionThrown(context, StringView(details, sizeof(details) - 1), error,
                                 ToProtocolString(isolate, message->Get())->string(),
                                 ToProtocolString(isolate, message->GetScriptResourceName())->string(),
                                 message->GetLineNumber(context).FromMaybe(0),
@@ -1079,24 +1083,18 @@ public:
                                 scriptId);
     }
 
-    void startRepeatingTimer(double interval, TimerCallback callback, void* data) override
-    {
-        // TODO: implement this for supporting heap profiler.
-    }
+    void StartRepeatingTimer(double interval, TimerCallback callback, void* data) override {}
 
-    void cancelTimer(void* data) override
-    {
-        // TODO: implement this for supporting heap profiler.
-    }
+    void CancelTimer(void* data) override {}
 
-    void schedulePauseOnNextStatement(const std::string& reason)
+    void SchedulePauseOnNextStatement(const std::string& reason)
     {
         for (const auto& idChannel : channels) {
-            idChannel.second->schedulePauseOnNextStatement(reason);
+            idChannel.second->SchedulePauseOnNextStatement(reason);
         }
     }
 
-    bool hasConnectedSessions()
+    bool HasConnectedSessions()
     {
         for (const auto& idChannel : channels) {
             // Other sessions are "invisible" more most purposes
@@ -1107,7 +1105,7 @@ public:
         return false;
     }
 
-    std::shared_ptr<MainThreadHandle> getThreadHandle()
+    std::shared_ptr<MainThreadHandle> GetThreadHandle()
     {
         if (!interface) {
             interface = std::make_shared<MainThreadInterface>(static_cast<Agent*>(env->GetInspectorAgent()));
@@ -1121,18 +1119,18 @@ public:
     }
 
 private:
-    bool shouldRunMessageLoop()
+    bool ShouldRunMessageLoop()
     {
         if (waitingForFrontend) {
             return true;
         }
         if (waitingForSessionsDisconnect || waitingForResume) {
-            return hasConnectedSessions();
+            return HasConnectedSessions();
         }
         return false;
     }
 
-    void runMessageLoop()
+    void RunMessageLoop()
     {
         if (runningNestedLoop) {
             return;
@@ -1140,7 +1138,7 @@ private:
 
         runningNestedLoop = true;
 
-        while (shouldRunMessageLoop()) {
+        while (ShouldRunMessageLoop()) {
             if (interface) {
                 interface->WaitForFrontendEvent();
             }
@@ -1149,7 +1147,7 @@ private:
         runningNestedLoop = false;
     }
 
-    double currentTimeMS() override
+    double CurrentTimeMS() override
     {
         return env->platform()->CurrentClockTimeMillis();
     }
@@ -1187,7 +1185,7 @@ bool Agent::Start(const std::string& pathParam,
     }
 
     if (waitForConnect) {
-        client->waitForFrontend();
+        client->WaitForFrontend();
     }
     return true;
 }
@@ -1245,7 +1243,7 @@ bool Agent::StartIoThread()
 
     CHECK_NOT_NULL(client);
 
-    io = InspectorIo::Start(client->getThreadHandle(), path, hostPort, { false, true });
+    io = InspectorIo::Start(client->GetThreadHandle(), path, hostPort, { false, true });
     if (io == nullptr) {
         return false;
     }
@@ -1267,29 +1265,32 @@ std::unique_ptr<InspectorSession> Agent::Connect(std::unique_ptr<InspectorSessio
     CHECK_NOT_NULL(client);
 
     int sessionId = client->connectFrontend(std::move(delegate), preventShutdown);
-    return std::unique_ptr<InspectorSession>(new SameThreadInspectorSession(sessionId, client));
+    return std::make_unique<SameThreadInspectorSession>(sessionId, client);
 }
 
 void Agent::WaitForDisconnect()
 {
     CHECK_NOT_NULL(client);
-    if (client->hasConnectedSessions()) {
-        fprintf(stderr, "Waiting for the debugger to disconnect...\n");
-        fflush(stderr);
+    if (client->HasConnectedSessions()) {
+        if (fprintf(stderr, "Waiting for the debugger to disconnect...\n") < 0) {
+            return;
+        }
+        if (fflush(stderr) != 0) {
+            return;
+        }
     }
 
-    // TODO: if client->notifyWaitingForDisconnect()
-    client->contextDestroyed(parentEnv->context());
+    client->ContextDestroyed(parentEnv->context());
 
     if (io != nullptr) {
         io->StopAcceptingNewConnections();
-        client->waitForSessionsDisconnect();
+        client->WaitForSessionsDisconnect();
     }
 }
 
 void Agent::PauseOnNextJavascriptStatement(const std::string& reason)
 {
-    client->schedulePauseOnNextStatement(reason);
+    client->SchedulePauseOnNextStatement(reason);
 }
 
 bool Agent::IsActive()
@@ -1303,14 +1304,14 @@ bool Agent::IsActive()
 void Agent::WaitForConnect()
 {
     CHECK_NOT_NULL(client);
-    client->waitForFrontend();
+    client->WaitForFrontend();
 }
 
 SameThreadInspectorSession::~SameThreadInspectorSession()
 {
     auto clientLock = client.lock();
     if (clientLock) {
-        clientLock->disconnectFrontend(sessionId);
+        clientLock->DisconnectFrontend(sessionId);
     }
 }
 
@@ -1318,7 +1319,7 @@ void SameThreadInspectorSession::Dispatch(const v8_inspector::StringView& messag
 {
     auto clientLock = client.lock();
     if (clientLock) {
-        clientLock->dispatchMessageFromFrontend(sessionId, message);
+        clientLock->DispatchMessageFromFrontend(sessionId, message);
     }
 }
 
