@@ -39,18 +39,24 @@ class ServerSocket;
 
 class SocketServerDelegate {
 public:
-    virtual void AssignServer(InspectorSocketServer* server) = 0;
-    virtual void StartSession(int sessionId, const std::string& targetId) = 0;
-    virtual void EndSession(int sessionId) = 0;
-    virtual void MessageReceived(int sessionId, const std::string& message) = 0;
-    virtual std::vector<std::string> GetTargetIds() = 0;
-    virtual std::string GetTargetTitle(const std::string& id) = 0;
-    virtual std::string GetTargetUrl(const std::string& id) = 0;
     virtual ~SocketServerDelegate() = default;
+
+    virtual void AssignServer(InspectorSocketServer* server) = 0;
+
+    virtual void StartSession(int sessionId, const std::string& targetId) = 0;
+
+    virtual void EndSession(int sessionId) = 0;
+
+    virtual void MessageReceived(int sessionId, const std::string& message) = 0;
+
+    virtual std::vector<std::string> GetTargetIds() = 0;
+
+    virtual std::string GetTargetTitle(const std::string& id) = 0;
+
+    virtual std::string GetTargetUrl(const std::string& id) = 0;
 };
 
-// HTTP Server, writes messages requested as TransportActions, and responds
-// to HTTP requests and WS upgrades.
+// HTTP Server, writes messages requested as TransportActions, and responds to HTTP requests and WS upgrades.
 
 class InspectorSocketServer {
 public:
@@ -61,31 +67,40 @@ public:
                           const InspectPublishUid& inspectPublishUid,
                           FILE* out = stderr,
                           int pid = -1);
+
     ~InspectorSocketServer();
 
     // Start listening on host/port
     bool Start();
 
-    // Called by the TransportAction sent with InspectorIo::Write():
-    //   kKill and kStop
+    // Called by the TransportAction sent with InspectorIo::Write(): kKill and kStop
     void Stop();
+
     //   kSendMessage
     void Send(int sessionId, const std::string& message);
+
     //   kKill
     void TerminateConnections();
+
     int GetPort() const;
 
     // Session connection lifecycle
     void Accept(int serverPort, uv_stream_t* serverSocket);
+
     bool HandleGetRequest(int sessionId, const std::string& hostName, const std::string& path);
+
     void SessionStarted(int sessionId, const std::string& targetId, const std::string& wsKey);
+
     void SessionTerminated(int sessionId);
+
     void MessageReceived(int sessionId, const std::string& message)
     {
         delegate->MessageReceived(sessionId, message);
     }
+    
     SocketSession* Session(int sessionId);
-    bool done() const
+
+    bool Done() const
     {
         return serverSockets.empty() && connectedSessions.empty();
     }
@@ -98,7 +113,7 @@ private:
     std::string GetFrontendURL(bool isCompat, const std::string& formattedAddress);
     bool TargetExists(const std::string& id);
 
-    enum class ServerState { kNew, kRunning, kStopped };
+    enum class ServerState { NEW, RUNNING, STOPPED };
     uv_loop_t* loop;
     std::unique_ptr<SocketServerDelegate> delegate;
     const std::string host;

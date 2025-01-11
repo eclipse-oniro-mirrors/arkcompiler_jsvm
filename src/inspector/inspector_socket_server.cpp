@@ -23,6 +23,7 @@
 #include <sstream>
 #include <string>
 #include <unistd.h>
+#include <securec.h>
 
 #include "jsvm_version.h"
 #include "uv.h"
@@ -36,13 +37,6 @@ namespace inspector {
 // depend on inspector_socket_server.h
 std::string FormatWsAddress(const std::string& host, int port, const std::string& targetId, bool includeProtocol);
 namespace {
-void Escape(std::string* string)
-{
-    for (char& c : *string) {
-        c = (c == '\"' || c == '\\') ? '_' : c;
-    }
-}
-
 std::string FormatHostPort(const std::string& host, int port)
 {
     // Host is valid (socket was bound) so colon means it's a v6 IP address
@@ -57,6 +51,13 @@ std::string FormatHostPort(const std::string& host, int port)
     }
     url << ':' << port;
     return url.str();
+}
+
+void Escape(std::string* string)
+{
+    for (char& c : *string) {
+        c = (c == '\"' || c == '\\') ? '_' : c;
+    }
 }
 
 std::string FormatAddress(const std::string& host, const std::string& targetId, bool includeProtocol)
@@ -88,18 +89,32 @@ std::string MapToString(const std::map<std::string, std::string>& object)
 
 std::string MapsToString(const std::vector<std::map<std::string, std::string>>& array)
 {
-    bool first = true;
+    bool isFirst = true;
     std::ostringstream json;
     json << "[ ";
     for (const auto& object : array) {
-        if (!first) {
+        if (!isFirst) {
             json << ", ";
         }
-        first = false;
+        isFirst = false;
         json << MapToString(object);
     }
     json << "]\n\n";
     return json.str();
+}
+
+void SendHttpResponse(InspectorSocket* socket, const std::string& response, int code)
+{
+    const char headers[] = "HTTP/1.0 %d OK\r\n"
+                           "Content-Type: application/json; charset=UTF-8\r\n"
+                           "Cache-Control: no-cache\r\n"
+                           "Content-Length: %zu\r\n"
+                           "\r\n";
+    char header[sizeof(headers) + 20];
+    int headerLen = snprintf_s(header, sizeof(header), sizeof(header) - 1, headers, code, response.size());
+    CHECK(headerLen >= 0);
+    socket->Write(header, headerLen);
+    socket->Write(response.data(), response.size());
 }
 
 const char* MatchPathSegment(const char* path, const char* expected)
@@ -116,30 +131,17 @@ const char* MatchPathSegment(const char* path, const char* expected)
     return nullptr;
 }
 
-void SendHttpResponse(InspectorSocket* socket, const std::string& response, int code)
+void SendHttpNotFound(InspectorSocket* socket)
 {
-    const char headers[] = "HTTP/1.0 %d OK\r\n"
-                           "Content-Type: application/json; charset=UTF-8\r\n"
-                           "Cache-Control: no-cache\r\n"
-                           "Content-Length: %zu\r\n"
-                           "\r\n";
-    char header[sizeof(headers) + 20];
-    int headerLen = snprintf(header, sizeof(header), headers, code, response.size());
-    socket->Write(header, headerLen);
-    socket->Write(response.data(), response.size());
+    SendHttpResponse(socket, "", 404);
 }
 
 void SendVersionResponse(InspectorSocket* socket)
 {
     std::map<std::string, std::string> response;
-    response["Browser"] = "jsvm/" JSVM_VERSION_STRING;
     response["Protocol-Version"] = "1.1";
+    response["Browser"] = "jsvm/" JSVM_VERSION_STRING;
     SendHttpResponse(socket, MapToString(response), 200);
-}
-
-void SendHttpNotFound(InspectorSocket* socket)
-{
-    SendHttpResponse(socket, "", 404);
 }
 
 void SendProtocolJson(InspectorSocket* socket)
@@ -148,17 +150,17 @@ void SendProtocolJson(InspectorSocket* socket)
     strm.zalloc = Z_NULL;
     strm.zfree = Z_NULL;
     strm.opaque = Z_NULL;
-    CHECK_EQ(Z_OK, inflateInit(&strm));
-    static const size_t K_DECOMPRESSED_SIZE =
+    CHECK_EQ(inflateInit(&strm), Z_OK);
+    static const size_t decompressedSize =
         PROTOCOL_JSON[0] * 0x10000u + PROTOCOL_JSON[1] * 0x100u + PROTOCOL_JSON[2];
     strm.next_in = const_cast<uint8_t*>(PROTOCOL_JSON + 3);
     strm.avail_in = sizeof(PROTOCOL_JSON) - 3;
-    std::string data(K_DECOMPRESSED_SIZE, '\0');
+    std::string data(decompressedSize, '\0');
     strm.next_out = reinterpret_cast<Byte*>(data.data());
     strm.avail_out = data.size();
-    CHECK_EQ(Z_STREAM_END, inflate(&strm, Z_FINISH));
-    CHECK_EQ(0, strm.avail_out);
-    CHECK_EQ(Z_OK, inflateEnd(&strm));
+    CHECK_EQ(inflate(&strm, Z_FINISH), Z_STREAM_END);
+    CHECK_EQ(strm.avail_out, 0);
+    CHECK_EQ(inflateEnd(&strm), Z_OK);
     SendHttpResponse(socket, data, 200);
 }
 } // namespace
@@ -284,11 +286,18 @@ void PrintDebuggerReadyMessage(const std::string& host,
     }
     for (const auto& serverSocket : serverSockets) {
         for (const std::string& id : ids) {
-            fprintf(out, "Debugger %s on %s\n", verb, FormatWsAddress(host, serverSocket->GetPort(), id, true).c_str());
+            if (fprintf(out, "Debugger %s on %s\n", verb,
+                FormatWsAddress(host, serverSocket->GetPort(), id, true).c_str()) < 0) {
+                return;
+            }
         }
     }
-    fprintf(out, "For help, see: %s\n", "https://nodejs.org/en/docs/inspector");
-    fflush(out);
+    if (fprintf(out, "For help, see: %s\n", "https://nodejs.org/en/docs/inspector") < 0) {
+        return;
+    }
+    if (fflush(out) != 0) {
+        return;
+    }
 }
 
 InspectorSocketServer::InspectorSocketServer(std::unique_ptr<SocketServerDelegate> delegateParam,
@@ -302,7 +311,7 @@ InspectorSocketServer::InspectorSocketServer(std::unique_ptr<SocketServerDelegat
       nextSessionId(0), out(out), pid(pid)
 {
     delegate->AssignServer(this);
-    state = ServerState::kNew;
+    state = ServerState::NEW;
 }
 
 InspectorSocketServer::~InspectorSocketServer() = default;
@@ -336,11 +345,11 @@ void InspectorSocketServer::SessionTerminated(int sessionId)
     }
     connectedSessions.erase(sessionId);
     if (connectedSessions.empty()) {
-        if (wasAttached && state == ServerState::kRunning && !serverSockets.empty()) {
+        if (wasAttached && state == ServerState::RUNNING && !serverSockets.empty()) {
             PrintDebuggerReadyMessage(host, serverSockets, delegate->GetTargetIds(), "ending",
                                       inspectPublishUid.console, out);
         }
-        if (state == ServerState::kStopped) {
+        if (state == ServerState::STOPPED) {
             delegate.reset();
         }
     }
@@ -355,21 +364,22 @@ bool InspectorSocketServer::HandleGetRequest(int sessionId, const std::string& h
         return true;
     }
     const char* command = MatchPathSegment(path.c_str(), "/json");
-    if (command == nullptr) {
+    if (!command) {
         return false;
     }
 
+    bool hasHandled = false;
     if (MatchPathSegment(command, "list") || command[0] == '\0') {
         SendListResponse(socket, hostName, session);
-        return true;
+        hasHandled = true;
     } else if (MatchPathSegment(command, "protocol")) {
         SendProtocolJson(socket);
-        return true;
+        hasHandled = true;
     } else if (MatchPathSegment(command, "version")) {
         SendVersionResponse(socket);
-        return true;
+        hasHandled = true;
     }
-    return false;
+    return hasHandled;
 }
 
 void InspectorSocketServer::SendListResponse(InspectorSocket* socket,
@@ -416,20 +426,22 @@ std::string InspectorSocketServer::GetFrontendURL(bool isCompat, const std::stri
 bool InspectorSocketServer::Start()
 {
     CHECK_NOT_NULL(delegate);
-    CHECK_EQ(state, ServerState::kNew);
+    CHECK_EQ(state, ServerState::NEW);
     std::unique_ptr<SocketServerDelegate> delegateHolder;
     // We will return it if startup is successful
     delegate.swap(delegateHolder);
     struct addrinfo hints;
-    memset(&hints, 0, sizeof(hints));
+    memset_s(&hints, sizeof(hints), 0, sizeof(hints));
     hints.ai_flags = AI_NUMERICSERV;
     hints.ai_socktype = SOCK_STREAM;
     uv_getaddrinfo_t req;
-    const std::string port_string = std::to_string(port);
-    int err = uv_getaddrinfo(loop, &req, nullptr, host.c_str(), port_string.c_str(), &hints);
+    const std::string portString = std::to_string(port);
+    int err = uv_getaddrinfo(loop, &req, nullptr, host.c_str(), portString.c_str(), &hints);
     if (err < 0) {
         if (out != nullptr) {
-            fprintf(out, "Unable to resolve \"%s\": %s\n", host.c_str(), uv_strerror(err));
+            if (fprintf(out, "Unable to resolve \"%s\": %s\n", host.c_str(), uv_strerror(err)) < 0) {
+                return false;
+            }
         }
         return false;
     }
@@ -446,13 +458,17 @@ bool InspectorSocketServer::Start()
     // show one error, for the last address.
     if (serverSockets.empty()) {
         if (out != nullptr) {
-            fprintf(out, "Starting inspector on %s:%d failed: %s\n", host.c_str(), port, uv_strerror(err));
-            fflush(out);
+            if (fprintf(out, "Starting inspector on %s:%d failed: %s\n", host.c_str(), port, uv_strerror(err)) < 0) {
+                return false;
+            }
+            if (fflush(out) != 0) {
+                return false;
+            }
         }
         return false;
     }
     delegate.swap(delegateHolder);
-    state = ServerState::kRunning;
+    state = ServerState::RUNNING;
     PrintDebuggerReadyMessage(host, serverSockets, delegate->GetTargetIds(), "listening", inspectPublishUid.console,
                               out);
     return true;
@@ -460,13 +476,13 @@ bool InspectorSocketServer::Start()
 
 void InspectorSocketServer::Stop()
 {
-    if (state == ServerState::kStopped) {
+    if (state == ServerState::STOPPED) {
         return;
     }
-    CHECK_EQ(state, ServerState::kRunning);
-    state = ServerState::kStopped;
+    CHECK_EQ(state, ServerState::RUNNING);
+    state = ServerState::STOPPED;
     serverSockets.clear();
-    if (done()) {
+    if (Done()) {
         delegate.reset();
     }
 }
@@ -495,7 +511,7 @@ int InspectorSocketServer::GetPort() const
 
 void InspectorSocketServer::Accept(int serverPort, uv_stream_t* serverSocket)
 {
-    std::unique_ptr<SocketSession> session(new SocketSession(this, nextSessionId++, serverPort));
+    std::unique_ptr<SocketSession> session = std::make_unique<SocketSession>(this, nextSessionId++, serverPort);
 
     InspectorSocket::DelegatePointer delegatePointer =
         InspectorSocket::DelegatePointer(new SocketSession::Delegate(this, session->GetId()));
@@ -569,7 +585,8 @@ int ServerSocket::DetectPort(uv_loop_t* loop, int pid)
         auto unixDomainSocketPath = "jsvm_devtools_remote_" + std::to_string(port) + "_" + std::to_string(pid);
         auto* abstract = new char[unixDomainSocketPath.length() + 2];
         abstract[0] = '\0';
-        strcpy(abstract + 1, unixDomainSocketPath.c_str());
+        int ret = strcpy_s(abstract + 1, unixDomainSocketPath.length() + 2, unixDomainSocketPath.c_str());
+        CHECK(ret == 0);
         auto status = uv_pipe_init(loop, &unixSocket, 0);
         if (status == 0) {
             status = uv_pipe_bind2(&unixSocket, abstract, unixDomainSocketPath.length() + 1, 0);
