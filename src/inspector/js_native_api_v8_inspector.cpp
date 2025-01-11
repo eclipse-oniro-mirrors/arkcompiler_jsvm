@@ -913,24 +913,24 @@ public:
     }
 
 private:
-    void SendResponse(int callId, std::unique_ptr<v8_inspector::StringBuffer> message) override
+    void sendResponse(int callId, std::unique_ptr<v8_inspector::StringBuffer> message) override
     {
         SendMessageToFrontend(message->string());
     }
 
-    void SendNotification(std::unique_ptr<v8_inspector::StringBuffer> message) override
+    void sendNotification(std::unique_ptr<v8_inspector::StringBuffer> message) override
     {
         SendMessageToFrontend(message->string());
     }
 
-    void FlushProtocolNotifications() override {}
+    void flushProtocolNotifications() override {}
 
     void SendMessageToFrontend(const StringView& message)
     {
         delegate->SendMessageToFrontend(message);
     }
 
-    void SendMessageToFrontend(const std::string& message)
+    void sendMessageToFrontend(const std::string& message)
     {
         SendMessageToFrontend(Utf8ToStringView(message)->string());
     }
@@ -966,7 +966,7 @@ public:
         ContextCreated(env->context(), info);
     }
 
-    void RunMessageLoopOnPause(int contextGroupId) override
+    void runMessageLoopOnPause(int contextGroupId) override
     {
         waitingForResume = true;
         RunMessageLoop();
@@ -984,7 +984,7 @@ public:
         RunMessageLoop();
     }
 
-    void MaxAsyncCallStackDepthChanged(int depth) override
+    void maxAsyncCallStackDepthChanged(int depth) override
     {
         if (waitingForSessionsDisconnect) {
             // V8 isolate is mostly done and is only letting Inspector protocol
@@ -1017,12 +1017,12 @@ public:
         client->contextDestroyed(context);
     }
 
-    void QuitMessageLoopOnPause() override
+    void quitMessageLoopOnPause() override
     {
         waitingForResume = false;
     }
 
-    void RunIfWaitingForDebugger(int contextGroupId) override
+    void runIfWaitingForDebugger(int contextGroupId) override
     {
         waitingForFrontend = false;
     }
@@ -1052,7 +1052,7 @@ public:
         channels[sessionId]->DispatchProtocolMessage(message);
     }
 
-    Local<Context> EnsureDefaultContextInGroup(int contextGroupId) override
+    Local<Context> ensureDefaultContextInGroup(int contextGroupId) override
     {
         return env->context();
     }
@@ -1081,9 +1081,9 @@ public:
                                 scriptId);
     }
 
-    void StartRepeatingTimer(double interval, TimerCallback callback, void* data) override {}
+    void startRepeatingTimer(double interval, TimerCallback callback, void* data) override {}
 
-    void CancelTimer(void* data) override {}
+    void cancelTimer(void* data) override {}
 
     void SchedulePauseOnNextStatement(const std::string& reason)
     {
@@ -1145,7 +1145,7 @@ private:
         runningNestedLoop = false;
     }
 
-    double CurrentTimeMS() override
+    double currentTimeMS() override
     {
         return env->platform()->CurrentClockTimeMillis();
     }
