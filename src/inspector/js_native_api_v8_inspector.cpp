@@ -32,10 +32,10 @@
 
 #include <algorithm>
 #include <cstring>
+#include <securec.h>
 #include <sstream>
 #include <unordered_map>
 #include <vector>
-#include <securec.h>
 
 namespace v8impl {
 
@@ -665,8 +665,7 @@ InspectorIoDelegate::InspectorIoDelegate(std::shared_ptr<RequestQueueData> queue
 
 void InspectorIoDelegate::StartSession(int sessionId, const std::string& inTargetId)
 {
-    auto session = mainThread->Connect(
-        std::make_unique<IoSessionDelegate>(requestQueue->GetHandle(), sessionId), true);
+    auto session = mainThread->Connect(std::make_unique<IoSessionDelegate>(requestQueue->GetHandle(), sessionId), true);
     if (session) {
         sessions[sessionId] = std::move(session);
         if (fprintf(stderr, "Debugger attached.\n") < 0) {
@@ -770,7 +769,7 @@ std::unique_ptr<InspectorIo> InspectorIo::Start(std::shared_ptr<MainThreadHandle
                                                 std::shared_ptr<ExclusiveAccess<HostPort>> hostPortParam,
                                                 const InspectPublishUid& inspectPublishUid)
 {
-    auto io = std::make_unique<InspectorIo>(mainThread, path, hostPortParam, inspectPublishUid);
+    auto io = std::unique_ptr<InspectorIo>(new InspectorIo(mainThread, path, hostPortParam, inspectPublishUid));
     if (io->requestQueue->Expired()) { // Thread is not running
         return nullptr;
     }
@@ -813,8 +812,7 @@ void InspectorIo::ThreadMain()
     loop.data = nullptr;
     int err = uv_loop_init(&loop);
     CHECK_EQ(err, 0);
-    std::shared_ptr<RequestQueueData> queue =
-        std::make_shared<RequestQueueData>(&loop, RequestQueueData::CloseAndFree);
+    std::shared_ptr<RequestQueueData> queue(new RequestQueueData(&loop), RequestQueueData::CloseAndFree);
     std::string scriptPath = ScriptPath(&loop, scriptName);
     std::unique_ptr<InspectorIoDelegate> delegate(
         new InspectorIoDelegate(queue, mainThread, id, scriptPath, scriptName));
@@ -900,7 +898,7 @@ public:
 
     void DispatchProtocolMessage(const StringView& message)
     {
-        session->DispatchProtocolMessage(message);
+        session->dispatchProtocolMessage(message);
     }
 
     void SchedulePauseOnNextStatement(const std::string& reason)
@@ -1011,12 +1009,12 @@ public:
         }
         v8info.auxData = auxDataBuffer->string();
 
-        client->ContextCreated(v8info);
+        client->contextCreated(v8info);
     }
 
     void ContextDestroyed(Local<Context> context)
     {
-        client->ContextDestroyed(context);
+        client->contextDestroyed(context);
     }
 
     void QuitMessageLoopOnPause() override
@@ -1264,7 +1262,7 @@ std::unique_ptr<InspectorSession> Agent::Connect(std::unique_ptr<InspectorSessio
 
     CHECK_NOT_NULL(client);
 
-    int sessionId = client->connectFrontend(std::move(delegate), preventShutdown);
+    int sessionId = client->ConnectFrontend(std::move(delegate), preventShutdown);
     return std::make_unique<SameThreadInspectorSession>(sessionId, client);
 }
 
