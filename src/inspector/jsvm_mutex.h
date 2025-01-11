@@ -88,26 +88,35 @@ template<typename Traits>
 class MutexBase {
 public:
     inline MutexBase();
+
     inline ~MutexBase();
-    inline void Lock();
-    inline void Unlock();
-    inline void RdLock();
-    inline void RdUnlock();
 
     MutexBase(const MutexBase&) = delete;
+
     MutexBase& operator=(const MutexBase&) = delete;
 
-    class ScopedLock;
+    inline void Lock();
+
+    inline void Unlock();
+
+    inline void RdLock();
+
+    inline void RdUnlock();
+
     class ScopedUnlock;
+    class ScopedLock;
 
     class ScopedLock {
     public:
         inline explicit ScopedLock(const MutexBase& mutex);
-        inline explicit ScopedLock(const ScopedUnlock& scoped_unlock);
-        inline ~ScopedLock();
+
+        inline explicit ScopedLock(const ScopedUnlock& scopedUnlock);
 
         ScopedLock(const ScopedLock&) = delete;
+
         ScopedLock& operator=(const ScopedLock&) = delete;
+
+        inline ~ScopedLock();
 
     private:
         template<typename>
@@ -119,9 +128,11 @@ public:
     class ScopedReadLock {
     public:
         inline explicit ScopedReadLock(const MutexBase& mutex);
+
         inline ~ScopedReadLock();
 
         ScopedReadLock(const ScopedReadLock&) = delete;
+
         ScopedReadLock& operator=(const ScopedReadLock&) = delete;
 
     private:
@@ -154,16 +165,20 @@ private:
 template<typename Traits>
 class ConditionVariableBase {
 public:
-    using ScopedLock = typename MutexBase<Traits>::ScopedLock;
-
     inline ConditionVariableBase();
+
     inline ~ConditionVariableBase();
-    inline void Broadcast(const ScopedLock&);
-    inline void Signal(const ScopedLock&);
-    inline void Wait(const ScopedLock& scopedLock);
+
+    using ScopedLock = typename MutexBase<Traits>::ScopedLock;
 
     ConditionVariableBase(const ConditionVariableBase&) = delete;
     ConditionVariableBase& operator=(const ConditionVariableBase&) = delete;
+
+    inline void Broadcast(const ScopedLock&);
+
+    inline void Signal(const ScopedLock&);
+
+    inline void Wait(const ScopedLock& scopedLock);
 
 private:
     typename Traits::CondT cond;
@@ -336,7 +351,7 @@ MutexBase<Traits>::ScopedLock::ScopedLock(const MutexBase& mutex) : mutex(mutex)
 }
 
 template<typename Traits>
-MutexBase<Traits>::ScopedLock::ScopedLock(const ScopedUnlock& scoped_unlock) : MutexBase(scoped_unlock.mutex)
+MutexBase<Traits>::ScopedLock::ScopedLock(const ScopedUnlock& scopedUnlock) : MutexBase(scopedUnlock.mutex)
 {}
 
 template<typename Traits>

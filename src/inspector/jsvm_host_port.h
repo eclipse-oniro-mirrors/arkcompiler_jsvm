@@ -47,7 +47,6 @@ public:
 
     int GetPort() const
     {
-        // TODO(joyeecheung): make port a uint16_t
         CHECK_GE(port, 0);
         return port;
     }
