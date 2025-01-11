@@ -904,7 +904,7 @@ public:
     void SchedulePauseOnNextStatement(const std::string& reason)
     {
         std::unique_ptr<StringBuffer> buffer = Utf8ToStringView(reason);
-        session->SchedulePauseOnNextStatement(buffer->string(), buffer->string());
+        session->schedulePauseOnNextStatement(buffer->string(), buffer->string());
     }
 
     bool PreventShutdown()
