@@ -163,11 +163,11 @@ static bool IsIPAddress(const std::string& host)
 
     // All IPv6 addresses must be enclosed in square brackets, and anything
     // enclosed in square brackets must be an IPv6 address.
-    if (host.length() >= 4 && host.front() == '[' && host.back() == ']') {
+    if (host.length() >= ByteSize::SIZE_4_BYTES && host.front() == '[' && host.back() == ']') {
         // INET6_ADDRSTRLEN is the maximum length of the dual format (including the
         // terminating null character), which is the longest possible representation
         // of an IPv6 address: xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:ddd.ddd.ddd.ddd
-        if (host.length() - 2 >= INET6_ADDRSTRLEN) {
+        if (host.length() - ByteSize::SIZE_2_BYTES >= INET6_ADDRSTRLEN) {
             return false;
         }
 
@@ -260,15 +260,15 @@ static std::vector<char> encode_frame_hybi17(const std::vector<char>& message)
         frame.push_back(dataLength & 0xFF);
     } else {
         frame.push_back(K_EIGHT_BYTE_PAYLOAD_LENGTH_FIELD);
-        char extendedPayloadLength[8];
+        constexpr size_t byteCount = 8;
+        char extendedPayloadLength[byteCount];
         size_t remaining = dataLength;
         // Fill the length into extendedPayloadLength in the network byte order.
-        constexpr size_t byteCount = 8;
         for (int i = 0; i < byteCount; ++i) {
-            extendedPayloadLength[7 - i] = remaining & 0xFF;
-            remaining >>= 8;
+            extendedPayloadLength[byteCount - 1 - i] = remaining & 0xFF;
+            remaining >>= byteCount;
         }
-        frame.insert(frame.end(), extendedPayloadLength, extendedPayloadLength + 8);
+        frame.insert(frame.end(), extendedPayloadLength, extendedPayloadLength + byteCount);
         CHECK_EQ(0, remaining);
     }
     frame.insert(frame.end(), message.begin(), message.end());
@@ -326,9 +326,9 @@ static WsDecodeResult DecodeFrameHybi17(const std::vector<char>& buffer,
     if (payloadLength64 > K_MAX_SINGLE_BYTE_PAYLOAD_LENGTH) {
         int extendedPayloadLengthSize;
         if (payloadLength64 == K_TWO_BYTE_PAYLOAD_LENGTH_FIELD) {
-            extendedPayloadLengthSize = 2;
+            extendedPayloadLengthSize = ByteSize::SIZE_2_BYTES;
         } else if (payloadLength64 == K_EIGHT_BYTE_PAYLOAD_LENGTH_FIELD) {
-            extendedPayloadLengthSize = 8;
+            extendedPayloadLengthSize = ByteSize::SIZE_8_BYTES;
         } else {
             return FRAME_ERROR;
         }
@@ -787,7 +787,7 @@ void InspectorSocket::Shutdown(ProtocolHandler* handler)
 InspectorSocket::Pointer InspectorSocket::Accept(uv_stream_t* server, DelegatePointer delegate)
 {
     auto tcp = TcpHolder::Accept(server, std::move(delegate));
-    InspectorSocket* inspector  = nullptr;
+    InspectorSocket* inspector = nullptr;
     if (tcp) {
         // If accept tcp, create new inspector socket
         inspector = new InspectorSocket();
