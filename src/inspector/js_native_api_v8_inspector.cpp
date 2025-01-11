@@ -203,7 +203,10 @@ public:
     {
         thread->Post(NewCreateRequest(objectId, std::move(factory)));
     }
+
     AnotherThreadObjectReference(AnotherThreadObjectReference&) = delete;
+
+    AnotherThreadObjectReference& operator=(const AnotherThreadObjectReference&) = delete;
 
     ~AnotherThreadObjectReference()
     {
