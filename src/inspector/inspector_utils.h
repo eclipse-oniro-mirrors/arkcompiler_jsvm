@@ -16,9 +16,9 @@
 #ifndef INSPECTOR_UTILS_H
 #define INSPECTOR_UTILS_H
 #include <cstring>
+#include <securec.h>
 #include <sstream>
 #include <string>
-#include <securec.h>
 
 #include "jsvm_dfx.h"
 #include "jsvm_util.h"
@@ -37,7 +37,7 @@ template<typename Inner, typename Outer>
 class ContainerOfHelper {
 public:
     // The helper is for doing safe downcasts from base types to derived types.
-    inline ContainerOfHelper(Inner Outer::*field, Inner* pointer);
+    inline ContainerOfHelper(Inner Outer::* field, Inner* pointer);
     template<typename TypeName>
     inline operator TypeName*() const;
 
@@ -79,19 +79,6 @@ template<typename T>
 inline void USE(T&&)
 {}
 
-// Used to be a macro, hence the uppercase name.
-template<int N>
-inline v8::Local<v8::String> FIXED_ONE_BYTE_STRING(v8::Isolate* isolate, const char (&data)[N])
-{
-    return OneByteString(isolate, data, N - 1);
-}
-
-template<std::size_t N>
-inline v8::Local<v8::String> FIXED_ONE_BYTE_STRING(v8::Isolate* isolate, const std::array<char, N>& arr)
-{
-    return OneByteString(isolate, arr.data(), N - 1);
-}
-
 template<typename T, void (*function)(T*)>
 struct FunctionDeleter {
     void operator()(T* pointer) const
@@ -105,13 +92,13 @@ template<typename T, void (*function)(T*)>
 using DeleteFnPtr = typename FunctionDeleter<T, function>::Pointer;
 
 template<typename Inner, typename Outer>
-constexpr uintptr_t OffsetOf(Inner Outer::*field)
+constexpr uintptr_t OffsetOf(Inner Outer::* field)
 {
     return reinterpret_cast<uintptr_t>(&(static_cast<Outer*>(nullptr)->*field));
 }
 
 template<typename Inner, typename Outer>
-ContainerOfHelper<Inner, Outer>::ContainerOfHelper(Inner Outer::*field, Inner* pointer)
+ContainerOfHelper<Inner, Outer>::ContainerOfHelper(Inner Outer::* field, Inner* pointer)
     : pointer(reinterpret_cast<Outer*>(reinterpret_cast<uintptr_t>(pointer) - OffsetOf(field)))
 {}
 
@@ -125,7 +112,7 @@ ContainerOfHelper<Inner, Outer>::operator TypeName*() const
 // Calculate the address of the outer (i.e. embedding) struct from
 // the interior pointer to a data member.
 template<typename Inner, typename Outer>
-constexpr ContainerOfHelper<Inner, Outer> ContainerOf(Inner Outer::*field, Inner* pointer)
+constexpr ContainerOfHelper<Inner, Outer> ContainerOf(Inner Outer::* field, Inner* pointer)
 {
     return ContainerOfHelper<Inner, Outer>(field, pointer);
 }
@@ -267,6 +254,28 @@ public:
     explicit TwoByteValue(v8::Isolate* isolate, v8::Local<v8::Value> value);
 };
 
+template<typename T>
+T* Realloc(T* pointer, size_t n, size_t oldN)
+{
+    CHECK(n > 0);
+    size_t newSize = sizeof(T) * n;
+    T* newPtr = static_cast<T*>(malloc(newSize));
+
+    CHECK_NOT_NULL(newPtr);
+
+    if (!pointer) {
+        return newPtr;
+    }
+
+    size_t oldSize = sizeof(T) * oldN;
+    CHECK(newSize > oldSize);
+    errno_t ret = memcpy_s(newPtr, newSize, pointer, oldSize);
+    CHECK(ret == EOK);
+    free(pointer);
+
+    return newPtr;
+}
+
 template<typename T, size_t kStackStorageSize>
 void MaybeStackBuffer<T, kStackStorageSize>::AllocateSufficientStorage(size_t storage)
 {
@@ -274,11 +283,11 @@ void MaybeStackBuffer<T, kStackStorageSize>::AllocateSufficientStorage(size_t st
     if (storage > GetCapacity()) {
         bool wasAllocated = IsAllocated();
         T* allocatedPtr = wasAllocated ? buf : nullptr;
-        buf = reinterpret_cast<T*>(Realloc(allocatedPtr, storage));
+        buf = Realloc(allocatedPtr, storage, length);
         capacity = storage;
         if (!wasAllocated && length > 0) {
             int ret = memcpy_s(buf, length * sizeof(buf[0]), bufSt, length * sizeof(buf[0]));
-            CHECK(ret == 0);
+            CHECK(ret == EOK);
         }
     }
 
@@ -289,10 +298,33 @@ void MaybeStackBuffer<T, kStackStorageSize>::AllocateSufficientStorage(size_t st
 std::string StringViewToUtf8(v8_inspector::StringView view);
 std::unique_ptr<v8_inspector::StringBuffer> Utf8ToStringView(const std::string_view message);
 
+constexpr size_t TO_TRANSFORM_CHAR_NUM = 3;
+constexpr size_t TRANSFORMED_CHAR_NUM = 4;
+
+enum ByteOffset : uint8_t {
+    BYTE_0 = 0,
+    BYTE_1 = 1,
+    BYTE_2 = 2,
+    BYTE_3 = 3,
+    BYTE_4 = 4,
+    BYTE_5 = 5,
+    BYTE_6 = 6,
+    BYTE_7 = 7,
+    BIT_0 = 0,
+    BIT_1 = 1,
+    BIT_2 = 2,
+    BIT_3 = 3,
+    BIT_4 = 4,
+    BIT_5 = 5,
+    BIT_6 = 6,
+    BIT_7 = 7,
+    BIT_8 = 8,
+};
+
 // Encode base64
 inline constexpr size_t Base64EncodeSize(size_t size)
 {
-    return ((size + 2) / 3 * 4);
+    return ((size + TO_TRANSFORM_CHAR_NUM - 1) / TO_TRANSFORM_CHAR_NUM * TRANSFORMED_CHAR_NUM);
 }
 
 // Be careful: If dlen is less than expected encode size, it will crash.

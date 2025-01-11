@@ -39,7 +39,7 @@ inline icu::UnicodeString Utf8ToUtf16(const char* data, size_t len)
     return utf16Str;
 }
 
-inline std::string Utf16toUtf8(const char16_t* data, size_t length)
+inline std::string Utf16ToUtf8(const char16_t* data, size_t length)
 {
     icu::UnicodeString unicodeStr(data, length);
     std::string utf8Str;
@@ -68,14 +68,12 @@ std::string StringViewToUtf8(v8_inspector::StringView view)
     }
     const char16_t* source = reinterpret_cast<const char16_t*>(view.characters16());
 
-    return Utf16toUtf8(source, view.length());
+    return Utf16ToUtf8(source, view.length());
 }
-
-constexpr size_t TO_TRANSFORM_CHAR_NUM = 3;
-constexpr size_t TRANSFORMED_CHAR_NUM = 4;
 
 static constexpr char BASE64_CHAR_SET[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
+// clang-format off
 size_t Base64Encode(const char* inputString, size_t slen, char* outputBuffer, size_t dlen)
 {
     // 1: caluate encode size and check
@@ -88,37 +86,49 @@ size_t Base64Encode(const char* inputString, size_t slen, char* outputBuffer, si
     for (size_t i = 0, j = 0; j < strLen - 2; i += TRANSFORMED_CHAR_NUM, j += TO_TRANSFORM_CHAR_NUM) {
         // convert three 8bit into four 6bit; then add two 0 bit in each 6 bit
         // former 00 + first 6 bits of the first char
-        outputBuffer[i] = BASE64_CHAR_SET[(static_cast<unsigned int>(inputString[j]) & 0xff) >> 2];
+        outputBuffer[i] = BASE64_CHAR_SET[(static_cast<unsigned int>(inputString[j]) & 0xff) >> ByteOffset::BIT_2];
         // 00 + the last 2 bits of the first char + the first 4 bits of the second char
-        outputBuffer[i + 1] = BASE64_CHAR_SET[(static_cast<unsigned int>(inputString[j]) & 0x03) << 4 |
-                                            (static_cast<unsigned int>(inputString[j + 1]) & 0xf0) >> 4];
+        outputBuffer[i + ByteOffset::BYTE_1] =
+            BASE64_CHAR_SET[(static_cast<unsigned int>(inputString[j]) & 0x03) << ByteOffset::BIT_4 |
+                            (static_cast<unsigned int>(inputString[j + ByteOffset::BYTE_1]) & 0xf0) >>
+                                ByteOffset::BIT_4];
         // 00 + last 4 bits of the second char + the first 2 bits of the third char
-        outputBuffer[i + 2] = BASE64_CHAR_SET[(static_cast<unsigned int>(inputString[j + 1]) & 0x0f) << 2 |
-                                            (static_cast<unsigned int>(inputString[j + 2]) & 0xc0) >> 6];
+        outputBuffer[i + ByteOffset::BYTE_2] =
+            BASE64_CHAR_SET[(static_cast<unsigned int>(inputString[j + ByteOffset::BYTE_1]) & 0x0f) <<
+                                ByteOffset::BIT_2 |
+                            (static_cast<unsigned int>(inputString[j + ByteOffset::BYTE_2]) & 0xc0) >>
+                                ByteOffset::BIT_6];
         // 00 + the last 6 bits of the third char
-        outputBuffer[i + 3] = BASE64_CHAR_SET[static_cast<unsigned int>(inputString[j + 2]) & 0x3f];
+        outputBuffer[i + ByteOffset::BYTE_3] =
+            BASE64_CHAR_SET[static_cast<unsigned int>(inputString[j + ByteOffset::BYTE_2]) & 0x3f];
     }
     switch (strLen % TO_TRANSFORM_CHAR_NUM) {
         // the original string is less than three bytes, and the missing place is filled with '=' to patch four bytes
-        case 1:
+        case ByteSize::SIZE_1_BYTES:
             // 1,2: the original character is one, and two characters are missing after conversion
-            outputBuffer[encodedStrLen - 4] =
-                BASE64_CHAR_SET[(static_cast<unsigned int>(inputString[strLen - 1]) & 0xff) >> 2];
-            outputBuffer[encodedStrLen - 3] =
-                BASE64_CHAR_SET[(static_cast<unsigned int>(inputString[strLen - 1]) & 0x03) << 4];
-            outputBuffer[encodedStrLen - 2] = '=';
-            outputBuffer[encodedStrLen - 1] = '=';
+            outputBuffer[encodedStrLen - ByteOffset::BYTE_4] =
+                BASE64_CHAR_SET[(static_cast<unsigned int>(inputString[strLen - ByteOffset::BYTE_1]) & 0xff) >>
+                                ByteOffset::BIT_2];
+            outputBuffer[encodedStrLen - ByteOffset::BYTE_3] =
+                BASE64_CHAR_SET[(static_cast<unsigned int>(inputString[strLen - ByteOffset::BYTE_1]) & 0x03) <<
+                                ByteOffset::BIT_4];
+            outputBuffer[encodedStrLen - ByteOffset::BYTE_2] = '=';
+            outputBuffer[encodedStrLen - ByteOffset::BYTE_1] = '=';
             break;
-        case 2:
+        case ByteSize::SIZE_2_BYTES:
             // 1: the original character is two, and a character are missing after conversion
-            outputBuffer[encodedStrLen - 4] =
-                BASE64_CHAR_SET[(static_cast<unsigned int>(inputString[strLen - 2]) & 0xff) >> 2];
-            outputBuffer[encodedStrLen - 3] =
-                BASE64_CHAR_SET[(static_cast<unsigned int>(inputString[strLen - 2]) & 0x03) << 4 |
-                              (static_cast<unsigned int>(inputString[strLen - 1]) & 0xf0) >> 4];
-            outputBuffer[encodedStrLen - 2] =
-                BASE64_CHAR_SET[(static_cast<unsigned int>(inputString[strLen - 1]) & 0x0f) << 2];
-            outputBuffer[encodedStrLen - 1] = '=';
+            outputBuffer[encodedStrLen - ByteOffset::BYTE_4] =
+                BASE64_CHAR_SET[(static_cast<unsigned int>(inputString[strLen - ByteOffset::BYTE_2]) & 0xff) >>
+                                ByteOffset::BIT_2];
+            outputBuffer[encodedStrLen - ByteOffset::BYTE_3] =
+                BASE64_CHAR_SET[(static_cast<unsigned int>(inputString[strLen - ByteOffset::BYTE_2]) & 0x03) <<
+                                ByteOffset::BIT_4 |
+                                (static_cast<unsigned int>(inputString[strLen - ByteOffset::BYTE_1]) & 0xf0) >>
+                                    ByteOffset::BIT_4];
+            outputBuffer[encodedStrLen - ByteOffset::BYTE_2] =
+                BASE64_CHAR_SET[(static_cast<unsigned int>(inputString[strLen - ByteOffset::BYTE_1]) & 0x0f) <<
+                                ByteOffset::BIT_2];
+            outputBuffer[encodedStrLen - ByteOffset::BYTE_1] = '=';
             break;
         default:
             break;
@@ -126,6 +136,7 @@ size_t Base64Encode(const char* inputString, size_t slen, char* outputBuffer, si
 
     return encodedStrLen;
 }
+// clang-format on
 
 std::string GetHumanReadableProcessName()
 {
