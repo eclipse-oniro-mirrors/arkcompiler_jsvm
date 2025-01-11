@@ -18,6 +18,7 @@
 #include <cstring>
 #include <sstream>
 #include <string>
+#include <securec.h>
 
 #include "jsvm_dfx.h"
 #include "jsvm_util.h"
@@ -32,10 +33,10 @@
 
 namespace jsvm {
 namespace inspector {
-// // The helper is for doing safe downcasts from base types to derived types.
 template<typename Inner, typename Outer>
 class ContainerOfHelper {
 public:
+    // The helper is for doing safe downcasts from base types to derived types.
     inline ContainerOfHelper(Inner Outer::*field, Inner* pointer);
     template<typename TypeName>
     inline operator TypeName*() const;
@@ -129,18 +130,15 @@ constexpr ContainerOfHelper<Inner, Outer> ContainerOf(Inner Outer::*field, Inner
     return ContainerOfHelper<Inner, Outer>(field, pointer);
 }
 
-// util.h
-// Allocates an array of member type T. For up to kStackStorageSize items,
-// the stack is used, otherwise malloc().
 template<typename T, size_t kStackStorageSize = 1024>
 class MaybeStackBuffer {
 public:
-    const T* out() const
+    const T* Out() const
     {
         return buf;
     }
 
-    T* out()
+    T* Out()
     {
         return buf;
     }
@@ -180,10 +178,6 @@ public:
         return capacity;
     }
 
-    // Make sure enough space for `storage` entries is available.
-    // This method can be called multiple times throughout the lifetime of the
-    // buffer, but once this has been called Invalidate() cannot be used.
-    // Content of the buffer in the range [0, GetLength()) is preserved.
     void AllocateSufficientStorage(size_t storage);
 
     void SetLength(size_t lengthParam)
@@ -203,10 +197,6 @@ public:
         buf[len] = T();
     }
 
-    // Make dereferencing this object return nullptr.
-    // This method can be called multiple times throughout the lifetime of the
-    // buffer, but once this has been called AllocateSufficientStorage() cannot
-    // be used.
     void Invalidate()
     {
         CHECK(!IsAllocated());
@@ -257,11 +247,11 @@ public:
 
     inline std::basic_string<T> ToString() const
     {
-        return { out(), GetLength() };
+        return { Out(), GetLength() };
     }
     inline std::basic_string_view<T> ToStringView() const
     {
-        return { out(), GetLength() };
+        return { Out(), GetLength() };
     }
 
 private:
@@ -277,7 +267,6 @@ public:
     explicit TwoByteValue(v8::Isolate* isolate, v8::Local<v8::Value> value);
 };
 
-// TODO: replace realloc with Realloc
 template<typename T, size_t kStackStorageSize>
 void MaybeStackBuffer<T, kStackStorageSize>::AllocateSufficientStorage(size_t storage)
 {
@@ -285,10 +274,11 @@ void MaybeStackBuffer<T, kStackStorageSize>::AllocateSufficientStorage(size_t st
     if (storage > GetCapacity()) {
         bool wasAllocated = IsAllocated();
         T* allocatedPtr = wasAllocated ? buf : nullptr;
-        buf = reinterpret_cast<T*>(realloc(allocatedPtr, storage));
+        buf = reinterpret_cast<T*>(Realloc(allocatedPtr, storage));
         capacity = storage;
         if (!wasAllocated && length > 0) {
-            memcpy(buf, bufSt, length * sizeof(buf[0]));
+            int ret = memcpy_s(buf, length * sizeof(buf[0]), bufSt, length * sizeof(buf[0]));
+            CHECK(ret == 0);
         }
     }
 

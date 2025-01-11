@@ -74,7 +74,7 @@ std::string StringViewToUtf8(v8_inspector::StringView view)
 constexpr size_t TO_TRANSFORM_CHAR_NUM = 3;
 constexpr size_t TRANSFORMED_CHAR_NUM = 4;
 
-static constexpr char base64CharSet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+static constexpr char BASE64_CHAR_SET[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 size_t Base64Encode(const char* inputString, size_t slen, char* outputBuffer, size_t dlen)
 {
@@ -88,36 +88,36 @@ size_t Base64Encode(const char* inputString, size_t slen, char* outputBuffer, si
     for (size_t i = 0, j = 0; j < strLen - 2; i += TRANSFORMED_CHAR_NUM, j += TO_TRANSFORM_CHAR_NUM) {
         // convert three 8bit into four 6bit; then add two 0 bit in each 6 bit
         // former 00 + first 6 bits of the first char
-        outputBuffer[i] = base64CharSet[(static_cast<unsigned int>(inputString[j]) & 0xff) >> 2];
+        outputBuffer[i] = BASE64_CHAR_SET[(static_cast<unsigned int>(inputString[j]) & 0xff) >> 2];
         // 00 + the last 2 bits of the first char + the first 4 bits of the second char
-        outputBuffer[i + 1] = base64CharSet[(static_cast<unsigned int>(inputString[j]) & 0x03) << 4 |
+        outputBuffer[i + 1] = BASE64_CHAR_SET[(static_cast<unsigned int>(inputString[j]) & 0x03) << 4 |
                                             (static_cast<unsigned int>(inputString[j + 1]) & 0xf0) >> 4];
         // 00 + last 4 bits of the second char + the first 2 bits of the third char
-        outputBuffer[i + 2] = base64CharSet[(static_cast<unsigned int>(inputString[j + 1]) & 0x0f) << 2 |
+        outputBuffer[i + 2] = BASE64_CHAR_SET[(static_cast<unsigned int>(inputString[j + 1]) & 0x0f) << 2 |
                                             (static_cast<unsigned int>(inputString[j + 2]) & 0xc0) >> 6];
         // 00 + the last 6 bits of the third char
-        outputBuffer[i + 3] = base64CharSet[static_cast<unsigned int>(inputString[j + 2]) & 0x3f];
+        outputBuffer[i + 3] = BASE64_CHAR_SET[static_cast<unsigned int>(inputString[j + 2]) & 0x3f];
     }
     switch (strLen % TO_TRANSFORM_CHAR_NUM) {
         // the original string is less than three bytes, and the missing place is filled with '=' to patch four bytes
         case 1:
             // 1,2: the original character is one, and two characters are missing after conversion
             outputBuffer[encodedStrLen - 4] =
-                base64CharSet[(static_cast<unsigned int>(inputString[strLen - 1]) & 0xff) >> 2];
+                BASE64_CHAR_SET[(static_cast<unsigned int>(inputString[strLen - 1]) & 0xff) >> 2];
             outputBuffer[encodedStrLen - 3] =
-                base64CharSet[(static_cast<unsigned int>(inputString[strLen - 1]) & 0x03) << 4];
+                BASE64_CHAR_SET[(static_cast<unsigned int>(inputString[strLen - 1]) & 0x03) << 4];
             outputBuffer[encodedStrLen - 2] = '=';
             outputBuffer[encodedStrLen - 1] = '=';
             break;
         case 2:
             // 1: the original character is two, and a character are missing after conversion
             outputBuffer[encodedStrLen - 4] =
-                base64CharSet[(static_cast<unsigned int>(inputString[strLen - 2]) & 0xff) >> 2];
+                BASE64_CHAR_SET[(static_cast<unsigned int>(inputString[strLen - 2]) & 0xff) >> 2];
             outputBuffer[encodedStrLen - 3] =
-                base64CharSet[(static_cast<unsigned int>(inputString[strLen - 2]) & 0x03) << 4 |
+                BASE64_CHAR_SET[(static_cast<unsigned int>(inputString[strLen - 2]) & 0x03) << 4 |
                               (static_cast<unsigned int>(inputString[strLen - 1]) & 0xf0) >> 4];
             outputBuffer[encodedStrLen - 2] =
-                base64CharSet[(static_cast<unsigned int>(inputString[strLen - 1]) & 0x0f) << 2];
+                BASE64_CHAR_SET[(static_cast<unsigned int>(inputString[strLen - 1]) & 0x0f) << 2];
             outputBuffer[encodedStrLen - 1] = '=';
             break;
         default:
@@ -200,7 +200,7 @@ TwoByteValue::TwoByteValue(Isolate* isolate, Local<Value> value)
     AllocateSufficientStorage(storage);
 
     const int flags = String::NO_NULL_TERMINATION;
-    const int length = string->Write(isolate, out(), 0, storage, flags);
+    const int length = string->Write(isolate, Out(), 0, storage, flags);
     SetLengthAndZeroTerminate(length);
 }
 } // namespace inspector
