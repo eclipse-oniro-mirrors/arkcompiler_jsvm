@@ -25,9 +25,6 @@
 
 #define ACCEPT_KEY_LENGTH Base64EncodeSize(20)
 
-#define DUMP_READS 0
-#define DUMP_WRITES 0
-
 namespace jsvm {
 namespace inspector {
 
@@ -90,51 +87,20 @@ protected:
 };
 
 namespace {
-
-#if DUMP_READS || DUMP_WRITES
-static void dump_hex(const char* buf, size_t len)
-{
-    const char* ptr = buf;
-    const char* end = ptr + len;
-    const char* cptr;
-    char c;
-    int i;
-
-    while (ptr < end) {
-        cptr = ptr;
-        constexpr size_t byte1 = 16;
-        for (i = 0; i < byte1 && ptr < end; i++) {
-            printf("%2.2X  ", static_cast<unsigned char>(*(ptr++)));
-        }
-        constexpr size_t byte2 = 72;
-        for (i = byte2 - (i * 4); i > 0; i--) {
-            printf(" ");
-        }
-        constexpr size_t byte3 = 16;
-        for (i = 0; i < byte3 && cptr < end; i++) {
-            c = *(cptr++);
-            printf("%c", (c > 0x19) ? c : '.');
-        }
-        printf("\n");
-    }
-    printf("\n\n");
-}
-#endif
-
 class WriteRequest {
 public:
     WriteRequest(ProtocolHandler* handler, const std::vector<char>& buffer)
         : handler(handler), storage(buffer), req(uv_write_t()), buf(uv_buf_init(storage.data(), storage.size()))
     {}
 
-    static WriteRequest* from_write_req(uv_write_t* req)
+    static WriteRequest* FromWriteReq(uv_write_t* req)
     {
         return jsvm::inspector::ContainerOf(&WriteRequest::req, req);
     }
 
     static void Cleanup(uv_write_t* req, int status)
     {
-        delete WriteRequest::from_write_req(req);
+        delete WriteRequest::FromWriteReq(req);
     }
 
     ProtocolHandler* const handler;
@@ -143,12 +109,13 @@ public:
     uv_buf_t buf;
 };
 
-void allocate_buffer(uv_handle_t* stream, size_t len, uv_buf_t* buf)
+void AllocateBuffer(uv_handle_t* stream, size_t len, uv_buf_t* buf)
 {
+    CHECK(len > 0);
     *buf = uv_buf_init(new char[len], len);
 }
 
-static void remove_from_beginning(std::vector<char>* buffer, size_t count)
+static void RemoveFromBeginning(std::vector<char>* buffer, size_t count)
 {
     buffer->erase(buffer->begin(), buffer->begin() + count);
 }
@@ -157,11 +124,11 @@ static const char CLOSE_FRAME[] = { '\x88', '\x00' };
 
 enum WsDecodeResult { FRAME_OK, FRAME_INCOMPLETE, FRAME_CLOSE, FRAME_ERROR };
 
-static void generate_accept_string(const std::string& clientKey, char (*buffer)[ACCEPT_KEY_LENGTH])
+static void GenerateAcceptString(const std::string& clientKey, char (*buffer)[ACCEPT_KEY_LENGTH])
 {
     // Magic string from websockets spec.
-    static constexpr char WS_MAGIC[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-    std::string input(clientKey + WS_MAGIC);
+    static constexpr char wsMagic[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+    std::string input(clientKey + wsMagic);
     char hash[SHA_DIGEST_LENGTH];
     USE(SHA1(reinterpret_cast<const unsigned char*>(input.data()), input.size(),
              reinterpret_cast<unsigned char*>(hash)));
@@ -247,11 +214,6 @@ static bool IsIPAddress(const std::string& host)
         return false;
     }
 
-    // The only strictly non-routable IPv4 address is 0.0.0.0, and macOS will make
-    // DNS requests for this IP address, so we need to explicitly reject it. In
-    // fact, we can safely reject all of 0.0.0.0/8 (see Section 3.2 of RFC 791 and
-    // Section 3.2.1.3 of RFC 1122).
-    // Note that inet_pton() stores the IPv4 address in network byte order.
     if (ipv4[0] == 0) {
         return false;
     }
@@ -422,6 +384,12 @@ public:
         }
     }
 
+    void Write(const std::vector<char> data) override
+    {
+        std::vector<char> output = encode_frame_hybi17(data);
+        WriteRaw(output, WriteRequest::Cleanup);
+    }
+
     void OnData(std::vector<char>* data) override
     {
         // 1. Parse.
@@ -430,15 +398,9 @@ public:
             processed = ParseWsFrames(*data);
             // 2. Fix the data size & length
             if (processed > 0) {
-                remove_from_beginning(data, processed);
+                RemoveFromBeginning(data, processed);
             }
         } while (processed > 0 && !data->empty());
-    }
-
-    void Write(const std::vector<char> data) override
-    {
-        std::vector<char> output = encode_frame_hybi17(data);
-        WriteRaw(output, WriteRequest::Cleanup);
     }
 
 protected:
@@ -448,6 +410,7 @@ protected:
             dispose = true;
             SendClose();
         } else {
+            // if tcp is null, delete this
             delete this;
         }
     }
@@ -457,7 +420,7 @@ private:
 
     static void OnCloseFrameWritten(uv_write_t* req, int status)
     {
-        WriteRequest* wr = WriteRequest::from_write_req(req);
+        WriteRequest* wr = WriteRequest::FromWriteReq(req);
         WsHandler* handler = static_cast<WsHandler*>(wr->handler);
         delete wr;
         Callback cb = handler->onCloseSent;
@@ -535,7 +498,7 @@ public:
     void AcceptUpgrade(const std::string& acceptKey) override
     {
         char acceptString[ACCEPT_KEY_LENGTH];
-        generate_accept_string(acceptKey, &acceptString);
+        GenerateAcceptString(acceptKey, &acceptString);
         const char acceptWsPrefix[] = "HTTP/1.1 101 Switching Protocols\r\n"
                                       "Upgrade: websocket\r\n"
                                       "Connection: Upgrade\r\n"
@@ -564,6 +527,11 @@ public:
     void OnEof() override
     {
         tcp.reset();
+    }
+
+    void Write(const std::vector<char> data) override
+    {
+        WriteRaw(data, WriteRequest::Cleanup);
     }
 
     void OnData(std::vector<char>* data) override
@@ -595,11 +563,6 @@ public:
         }
     }
 
-    void Write(const std::vector<char> data) override
-    {
-        WriteRaw(data, WriteRequest::Cleanup);
-    }
-
 protected:
     void Shutdown() override
     {
@@ -609,7 +572,7 @@ protected:
 private:
     static void ThenCloseAndReportFailure(uv_write_t* req, int status)
     {
-        ProtocolHandler* handler = WriteRequest::from_write_req(req)->handler;
+        ProtocolHandler* handler = WriteRequest::FromWriteReq(req)->handler;
         WriteRequest::Cleanup(req, status);
         handler->GetInspectorSocket()->SwitchProtocol(nullptr);
     }
@@ -715,17 +678,19 @@ std::string ProtocolHandler::GetHost() const
     sockaddr_storage addr;
     int len = sizeof(addr);
     int err = uv_tcp_getsockname(tcp->GetTcp(), reinterpret_cast<struct sockaddr*>(&addr), &len);
-    if (err != 0) {
+    if (err) {
         return "";
     }
     if (addr.ss_family == AF_INET6) {
+        // using ipv6
         const sockaddr_in6* v6 = reinterpret_cast<const sockaddr_in6*>(&addr);
         err = uv_ip6_name(v6, ip, sizeof(ip));
     } else {
+        // using ipv4
         const sockaddr_in* v4 = reinterpret_cast<const sockaddr_in*>(&addr);
         err = uv_ip4_name(v4, ip, sizeof(ip));
     }
-    if (err != 0) {
+    if (err) {
         return "";
     }
     return ip;
@@ -745,7 +710,7 @@ TcpHolder::Pointer TcpHolder::Accept(uv_stream_t* server, InspectorSocket::Deleg
         err = uv_accept(server, tcp);
     }
     if (err == 0) {
-        err = uv_read_start(tcp, allocate_buffer, OnDataReceivedCb);
+        err = uv_read_start(tcp, AllocateBuffer, OnDataReceivedCb);
     }
     if (err == 0) {
         return TcpHolder::Pointer(result);
@@ -762,12 +727,6 @@ void TcpHolder::SetHandler(ProtocolHandler* protocalHandler)
 
 int TcpHolder::WriteRaw(const std::vector<char>& buffer, uv_write_cb writeCb)
 {
-#if DUMP_WRITES
-    printf("%s (%ld bytes):\n", __FUNCTION__, buffer.size());
-    dump_hex(buffer.data(), buffer.size());
-    printf("\n");
-#endif
-
     // Freed in write_request_cleanup
     WriteRequest* wr = new WriteRequest(handler, buffer);
     uv_stream_t* stream = reinterpret_cast<uv_stream_t*>(&tcp);
@@ -791,14 +750,6 @@ void TcpHolder::OnClosed(uv_handle_t* handle)
 
 void TcpHolder::OnDataReceivedCb(uv_stream_t* tcp, ssize_t nread, const uv_buf_t* buf)
 {
-#if DUMP_READS
-    if (nread >= 0) {
-        printf("%s (%ld bytes)\n", __FUNCTION__, nread);
-        dump_hex(buf->base, nread);
-    } else {
-        printf("[%s:%d] %s\n", __FUNCTION__, __LINE__, uv_err_name(nread));
-    }
-#endif
     TcpHolder* holder = From(tcp);
     holder->ReclaimUvBuf(buf, nread);
     if (nread < 0 || nread == UV_EOF) {
@@ -818,6 +769,7 @@ void TcpHolder::DisconnectAndDispose(TcpHolder* holder)
 void TcpHolder::ReclaimUvBuf(const uv_buf_t* buf, ssize_t read)
 {
     if (read > 0) {
+        // insert buffer
         buffer.insert(buffer.end(), buf->base, buf->base + read);
     }
     delete[] buf->base;
@@ -835,13 +787,14 @@ void InspectorSocket::Shutdown(ProtocolHandler* handler)
 InspectorSocket::Pointer InspectorSocket::Accept(uv_stream_t* server, DelegatePointer delegate)
 {
     auto tcp = TcpHolder::Accept(server, std::move(delegate));
+    InspectorSocket* inspector  = nullptr;
     if (tcp) {
-        InspectorSocket* inspector = new InspectorSocket();
+        // If accept tcp, create new inspector socket
+        inspector = new InspectorSocket();
         inspector->SwitchProtocol(new HttpHandler(inspector, std::move(tcp)));
         return InspectorSocket::Pointer(inspector);
-    } else {
-        return InspectorSocket::Pointer(nullptr);
     }
+    return InspectorSocket::Pointer(nullptr);
 }
 
 void InspectorSocket::AcceptUpgrade(const std::string& acceptKey)
