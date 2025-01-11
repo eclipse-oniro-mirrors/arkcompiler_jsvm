@@ -19,11 +19,11 @@
 #include <cstdio>
 #include <iostream>
 #include <map>
+#include <securec.h>
 #include <set>
 #include <sstream>
 #include <string>
 #include <unistd.h>
-#include <securec.h>
 
 #include "jsvm_version.h"
 #include "uv.h"
@@ -131,9 +131,14 @@ const char* MatchPathSegment(const char* path, const char* expected)
     return nullptr;
 }
 
+enum HttpStatusCode : int {
+    HTTP_OK = 200,
+    HTTP_NOT_FOUND = 404,
+};
+
 void SendHttpNotFound(InspectorSocket* socket)
 {
-    SendHttpResponse(socket, "", 404);
+    SendHttpResponse(socket, "", HttpStatusCode::HTTP_NOT_FOUND);
 }
 
 void SendVersionResponse(InspectorSocket* socket)
@@ -141,7 +146,7 @@ void SendVersionResponse(InspectorSocket* socket)
     std::map<std::string, std::string> response;
     response["Protocol-Version"] = "1.1";
     response["Browser"] = "jsvm/" JSVM_VERSION_STRING;
-    SendHttpResponse(socket, MapToString(response), 200);
+    SendHttpResponse(socket, MapToString(response), HttpStatusCode::HTTP_OK);
 }
 
 void SendProtocolJson(InspectorSocket* socket)
@@ -151,17 +156,16 @@ void SendProtocolJson(InspectorSocket* socket)
     strm.zfree = Z_NULL;
     strm.opaque = Z_NULL;
     CHECK_EQ(inflateInit(&strm), Z_OK);
-    static const size_t decompressedSize =
-        PROTOCOL_JSON[0] * 0x10000u + PROTOCOL_JSON[1] * 0x100u + PROTOCOL_JSON[2];
-    strm.next_in = const_cast<uint8_t*>(PROTOCOL_JSON + 3);
-    strm.avail_in = sizeof(PROTOCOL_JSON) - 3;
+    static const size_t decompressedSize = PROTOCOL_JSON[0] * 0x10000u + PROTOCOL_JSON[1] * 0x100u + PROTOCOL_JSON[2];
+    strm.next_in = const_cast<uint8_t*>(PROTOCOL_JSON + ByteOffset::BYTE_3);
+    strm.avail_in = sizeof(PROTOCOL_JSON) - ByteOffset::BYTE_3;
     std::string data(decompressedSize, '\0');
     strm.next_out = reinterpret_cast<Byte*>(data.data());
     strm.avail_out = data.size();
     CHECK_EQ(inflate(&strm, Z_FINISH), Z_STREAM_END);
     CHECK_EQ(strm.avail_out, 0);
     CHECK_EQ(inflateEnd(&strm), Z_OK);
-    SendHttpResponse(socket, data, 200);
+    SendHttpResponse(socket, data, HttpStatusCode::HTTP_OK);
 }
 } // namespace
 
@@ -287,7 +291,7 @@ void PrintDebuggerReadyMessage(const std::string& host,
     for (const auto& serverSocket : serverSockets) {
         for (const std::string& id : ids) {
             if (fprintf(out, "Debugger %s on %s\n", verb,
-                FormatWsAddress(host, serverSocket->GetPort(), id, true).c_str()) < 0) {
+                        FormatWsAddress(host, serverSocket->GetPort(), id, true).c_str()) < 0) {
                 return;
             }
         }
@@ -410,7 +414,7 @@ void InspectorSocketServer::SendListResponse(InspectorSocket* socket,
         targetMap["devtoolsFrontendUrlCompat"] = GetFrontendURL(true, formattedAddress);
         targetMap["webSocketDebuggerUrl"] = FormatAddress(detectedHost, id, true);
     }
-    SendHttpResponse(socket, MapsToString(response), 200);
+    SendHttpResponse(socket, MapsToString(response), HttpStatusCode::HTTP_OK);
 }
 
 std::string InspectorSocketServer::GetFrontendURL(bool isCompat, const std::string& formattedAddress)
