@@ -114,7 +114,6 @@ config("jsvm_common_config") {
     "interface/innerkits",
     "interface/kits",
     "src",
-    "//base/hiviewdfx/hisysevent/interfaces/native/innerkits/hisysevent/include",
   ]
 }
 

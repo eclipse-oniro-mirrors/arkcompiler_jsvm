@@ -1,7 +1,7 @@
 # arkcompiler_jsvm_longque
 
 #### 介绍
-OpenHarmony JSVM-API是基于标准JS引擎提供的一套稳定的API，为开发者提供了较为完整的JS引擎能力，包括创建和销毁引擎，执行JS代码，JS/C++交互等关键能力。
+ OpenHarmony JSVM-API是基于标准JS引擎提供的一套稳定的API，为开发者提供了较为完整的JS引擎能力，包括创建和销毁引擎，执行JS代码，JS/C++交互等关键能力。
 
 OpenHarmony JSVM-API是C语言接口，遵循C99标准。
 
