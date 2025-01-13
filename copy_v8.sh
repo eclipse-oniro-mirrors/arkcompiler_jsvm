@@ -1,3 +1,4 @@
+#!/bin/bash
 # Copyright (c) 2024 Huawei Device Co., Ltd.
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,24 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-jsvm_path = "//arkcompiler/jsvm_longque"
+export SCRIPT_PATCH=$(dirname $(readlink -f "$0"))
+export TARGET_GEN_DIR=$2
+ 
+cp -u ${SCRIPT_PATCH}/../../third_party/node/deps/v8/libv8_shared.so ${TARGET_GEN_DIR}/libv8_shared.so
+cp -r ${SCRIPT_PATCH}/../../third_party/node/deps/v8/include/v8-include ${TARGET_GEN_DIR}/v8-include
 
-jsvm_sources = [
-  "src/js_native_api_v8.cpp",
-  "src/jsvm_env.cpp",
-  "src/jsvm_reference.cpp",
-]
-
-jsvm_inspector_sources = [
-  "src/inspector/inspector_socket.cpp",
-  "src/inspector/inspector_socket_server.cpp",
-  "src/inspector/inspector_utils.cpp",
-  "src/inspector/js_native_api_v8_inspector.cpp",
-]
-
-declare_args() {
-  jsvm_shared_libuv = true
-  enable_debug = false
-  enable_inspector = true
-  use_platform_ohos = true
-}

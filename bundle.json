@@ -31,23 +31,25 @@
                 "icu",
                 "init",
                 "libuv",
-                "resource_schedule_service"
+                "openssl",
+                "resource_schedule_service",
+                "zlib"
             ]
         },
         "build": {
             "sub_component": [
-                "//arkcompiler/jsvm_longque:jsvm_package"
+                "//arkcompiler/jsvm_longque:jsvm_packages"
             ],
             "inner_kits": [
                 {
                     "header": {
-                        "header_base": "//arkcompiler/jsvm_longque/interfaces/kits",
+                        "header_base": "//arkcompiler/jsvm_longque/interface/kits",
                         "header_files": [
                             "jsvm_types.h",
                             "jsvm.h"
                         ]
                     },
-                    "name": "//arkcompiler/jsvm_longque:jsvm_package"
+                    "name": "//arkcompiler/jsvm_longque:jsvm_packages"
                 }
             ],
             "test": []
