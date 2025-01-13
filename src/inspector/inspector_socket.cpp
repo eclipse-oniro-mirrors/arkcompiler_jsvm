@@ -256,7 +256,7 @@ static std::vector<char> encode_frame_hybi17(const std::vector<char>& message)
         frame.push_back(static_cast<char>(dataLength));
     } else if (dataLength <= 0xFFFF) {
         frame.push_back(K_TWO_BYTE_PAYLOAD_LENGTH_FIELD);
-        frame.push_back((dataLength & 0xFF00) >> 8);
+        frame.push_back((dataLength & 0xFF00) >> ByteOffset::BIT_8);
         frame.push_back(dataLength & 0xFF);
     } else {
         frame.push_back(K_EIGHT_BYTE_PAYLOAD_LENGTH_FIELD);
@@ -282,7 +282,7 @@ static WsDecodeResult DecodeFrameHybi17(const std::vector<char>& buffer,
                                         bool* compressed)
 {
     *bytesConsumed = 0;
-    if (buffer.size() < 2) {
+    if (buffer.size() < ByteSize::SIZE_2_BYTES) {
         return FRAME_INCOMPLETE;
     }
 
@@ -337,7 +337,7 @@ static WsDecodeResult DecodeFrameHybi17(const std::vector<char>& buffer,
         }
         payloadLength64 = 0;
         for (int i = 0; i < extendedPayloadLengthSize; ++i) {
-            payloadLength64 <<= 8;
+            payloadLength64 <<= ByteOffset::BIT_8;
             payloadLength64 |= static_cast<unsigned char>(*it++);
         }
     }
