@@ -5550,7 +5550,7 @@ JSVM_Status OH_JSVM_DefineClassWithOptions(JSVM_Env env,
 
         if ((p->attributes & JSVM_STATIC) != 0) { // attributes
             // Static properties are handled separately below.
-            static_property_count++;
+            staticPropertyCount++;
             continue;
         }
         v8::Local<v8::Name> propertyName;
@@ -5609,7 +5609,7 @@ JSVM_Status OH_JSVM_DefineClassWithOptions(JSVM_Env env,
 
     if (staticPropertyCount > 0) {
         std::vector<JSVM_PropertyDescriptor> static_descriptors;
-        static_descriptors.reserve(static_property_count);
+        static_descriptors.reserve(staticPropertyCount);
 
         for (size_t i = 0; i < propertyCount; i++) {
             const JSVM_PropertyDescriptor* p = properties + i;

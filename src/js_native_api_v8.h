@@ -232,7 +232,7 @@ struct JSVM_PropertyHandlerCfgStruct {
     JSVM_Ref indexedPropertyData;
 };
 
-JSVM_PropertyHandlerCfgStruct* CreatePropertyCfg(JSVM_Env env, JSVM_PropertyHandlerCfg propertyCfg)
+inline JSVM_PropertyHandlerCfgStruct* CreatePropertyCfg(JSVM_Env env, JSVM_PropertyHandlerCfg propertyCfg)
 {
     JSVM_PropertyHandlerCfgStruct* newPropertyCfg = new JSVM_PropertyHandlerCfgStruct;
     if (newPropertyCfg != nullptr && propertyCfg != nullptr) {

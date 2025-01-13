@@ -1,29 +1,44 @@
-/*
- * Copyright (c) 2024 Huawei Device Co., Ltd.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+# Copyright (c) 2024 Huawei Device Co., Ltd.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 
 import("//build/config/clang/clang.gni")
 import("//build/ohos.gni")
 import("jsvm.gni")
 
+action("copy_v8") {
+  external_deps = []
+  deps = []
+  script = "copy_v8.sh"
+  sources = []
+  outputs = [
+    "$target_gen_dir/libv8_shared.so",
+    "$target_gen_dir/v8-include",
+  ]
+  args = [
+    "--target_gen_dir",
+    rebase_path("$target_gen_dir"),
+  ]
+}
+
 config("libv8_config") {
   include_dirs =
-      [ "//vendor/huawei/binary/artifacts/js_engine_url/v8-include/v8-include" ]
+      [ "$target_gen_dir/v8-include" ]
 }
 
 ohos_prebuilt_shared_library("libv8") {
-  source = "//vendor/huawei/binary/artifacts/js_engine_url/libv8_shared.so"
+  deps = [ ":copy_v8" ]
+  source = "$target_gen_dir/libv8_shared.so"
   output = "libv8_shared.so"
   public_configs = [ ":libv8_config" ]
 
