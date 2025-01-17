@@ -31,6 +31,23 @@ action("copy_v8") {
   ]
 }
 
+action("copy_llhttp") {
+  external_deps = []
+  deps = []
+  script = "copy_llhttp.sh"
+  sources = []
+  outputs = [
+    "$target_gen_dir/llhttp/src/api.c",
+    "$target_gen_dir/llhttp/src/http.c",
+    "$target_gen_dir/llhttp/src/llhttp.c",
+    "$target_gen_dir/llhttp/include",
+  ]
+  args = [
+    "--target_gen_dir",
+    rebase_path("$target_gen_dir"),
+  ]
+}
+
 config("libv8_config") {
   include_dirs =
       [ "$target_gen_dir/v8-include" ]
@@ -51,14 +68,15 @@ ohos_prebuilt_shared_library("libv8") {
 }
 
 config("llhttp_config") {
-  include_dirs = [ "//third_party/nghttp2/third-party/llhttp/include" ]
+  include_dirs = [ "$target_gen_dir/llhttp/include" ]
 }
 
 ohos_static_library("llhttp") {
+  deps = [ ":copy_llhttp" ]
   sources = [
-    "//third_party/nghttp2/third-party/llhttp/src/api.c",
-    "//third_party/nghttp2/third-party/llhttp/src/http.c",
-    "//third_party/nghttp2/third-party/llhttp/src/llhttp.c",
+    "$target_gen_dir/llhttp/src/api.c",
+    "$target_gen_dir/llhttp/src/http.c",
+    "$target_gen_dir/llhttp/src/llhttp.c",
   ]
 
   public_configs = [ ":llhttp_config" ]
@@ -114,7 +132,6 @@ config("jsvm_common_config") {
     "interface/innerkits",
     "interface/kits",
     "src",
-    "//base/hiviewdfx/hisysevent/interfaces/native/innerkits/hisysevent/include",
   ]
 }
 
