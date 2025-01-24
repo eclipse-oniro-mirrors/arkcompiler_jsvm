@@ -60,7 +60,7 @@ ohos_prebuilt_shared_library("libv8") {
   public_configs = [ ":libv8_config" ]
 
   subsystem_name = "arkcompiler"
-  part_name = "jsvm_longque"
+  part_name = "jsvm"
 
   install_enable = true
   install_images = [ "system" ]
@@ -82,7 +82,7 @@ ohos_static_library("llhttp") {
   public_configs = [ ":llhttp_config" ]
 
   subsystem_name = "arkcompiler"
-  part_name = "jsvm_longque"
+  part_name = "jsvm"
 }
 
 config("jsvm_common_config") {
@@ -152,7 +152,7 @@ ohos_source_set("jsvm_inspector") {
   ]
 
   subsystem_name = "arkcompiler"
-  part_name = "jsvm_longque"
+  part_name = "jsvm"
 
   deps = [
     ":libv8",
@@ -219,7 +219,7 @@ ohos_shared_library("libjsvm") {
   output_extension = "so"
 
   subsystem_name = "arkcompiler"
-  part_name = "jsvm_longque"
+  part_name = "jsvm"
 
   install_enable = true
   install_images = [ "system" ]

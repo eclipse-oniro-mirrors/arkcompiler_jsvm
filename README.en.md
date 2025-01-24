@@ -1,4 +1,4 @@
-# arkcompiler_jsvm_longque
+# arkcompiler_jsvm
 
 #### Description
 OpenHarmony JSVM-API provides a set of stable APIs based on the standard JavaScript (JS) engine. It provides complete JS engine capabilities, including creating and destroying a JS engine, executing JS code, and implementing interaction between JS and C/C++ modules.
@@ -10,7 +10,7 @@ JSVM-API allows dynamically loaded JS code segment to be directly run during app
 #### Directory Structure
 
 ```
-/arkcompiler/jsvm_longque
+/arkcompiler/jsvm
 ├── interfaces
 │ ├── innerkits             # interface used in system component
 │ └── kits                  # interface provided to app developer
