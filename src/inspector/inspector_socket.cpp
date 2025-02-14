@@ -392,11 +392,9 @@ public:
 
     void OnData(std::vector<char>* data) override
     {
-        // 1. Parse.
         int processed = 0;
         do {
             processed = ParseWsFrames(*data);
-            // 2. Fix the data size & length
             if (processed > 0) {
                 RemoveFromBeginning(data, processed);
             }
