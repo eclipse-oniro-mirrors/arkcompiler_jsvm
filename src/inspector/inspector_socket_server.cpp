@@ -40,14 +40,12 @@ namespace {
 std::string FormatHostPort(const std::string& host, int port)
 {
     // Host is valid (socket was bound) so colon means it's a v6 IP address
-    bool v6 = host.find(':') != std::string::npos;
+    bool isIPV6 = (host.find(':') != std::string::npos);
     std::ostringstream url;
-    if (v6) {
-        url << '[';
-    }
-    url << host;
-    if (v6) {
-        url << ']';
+    if (isIPV6) {
+        url << '[' << host << ']';
+    } else {
+        url << host;
     }
     url << ':' << port;
     return url.str();
