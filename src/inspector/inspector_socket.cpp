@@ -775,13 +775,13 @@ void TcpHolder::ReclaimUvBuf(const uv_buf_t* buf, ssize_t read)
 
 InspectorSocket::~InspectorSocket() = default;
 
-// static
+// static method
 void InspectorSocket::Shutdown(ProtocolHandler* handler)
 {
     handler->Shutdown();
 }
 
-// static
+// static method
 InspectorSocket::Pointer InspectorSocket::Accept(uv_stream_t* server, DelegatePointer delegate)
 {
     auto tcp = TcpHolder::Accept(server, std::move(delegate));
