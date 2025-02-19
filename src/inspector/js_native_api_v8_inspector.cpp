@@ -854,19 +854,19 @@ namespace {
 
 using jsvm::inspector::TwoByteValue;
 
+using v8::Local;
 using v8::Context;
 using v8::Function;
 using v8::HandleScope;
 using v8::Isolate;
-using v8::Local;
 using v8::Message;
 using v8::Object;
 using v8::Value;
 
 using v8_inspector::StringBuffer;
 using v8_inspector::StringView;
-using v8_inspector::V8Inspector;
 using v8_inspector::V8InspectorClient;
+using v8_inspector::V8Inspector;
 
 std::unique_ptr<StringBuffer> ToProtocolString(Isolate* isolate, Local<Value> value)
 {

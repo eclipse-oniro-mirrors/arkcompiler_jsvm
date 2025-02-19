@@ -1699,6 +1699,7 @@ static const char* errorMessages[] = {
     "Main thread would deadlock",
     "External buffers are not allowed",
     "Cannot run JavaScript",
+    "Invalid type",
 };
 
 JSVM_Status OH_JSVM_GetLastErrorInfo(JSVM_Env env, const JSVM_ExtendedErrorInfo** result)
@@ -1710,7 +1711,7 @@ JSVM_Status OH_JSVM_GetLastErrorInfo(JSVM_Env env, const JSVM_ExtendedErrorInfo*
     // message in the `JSVM_Status` enum each time a new error message is added.
     // We don't have a jsvm_status_last as this would result in an ABI
     // change each time a message was added.
-    const int lastStatus = JSVM_CANNOT_RUN_JS;
+    const int lastStatus = JSVM_INVALID_TYPE;
 
     static_assert(jsvm::ArraySize(errorMessages) == lastStatus + 1,
                   "Count of error messages must match count of error values");
