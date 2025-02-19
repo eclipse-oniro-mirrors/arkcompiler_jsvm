@@ -47,15 +47,11 @@
 #include "v8-profiler.h"
 #include "v8.h"
 
-// Use FORCE_INLINE on functions that have a debug-category-enabled check first
-// and then ideally only a single function call following it, to maintain
-// performance for the common case (no debugging used).
+
 #ifdef __GNUC__
 #define FORCE_INLINE __attribute__((always_inline))
-#define COLD_NOINLINE __attribute__((cold, noinline))
 #else
 #define FORCE_INLINE
-#define COLD_NOINLINE
 #endif
 
 namespace jsvm {

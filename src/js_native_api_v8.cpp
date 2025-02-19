@@ -37,7 +37,7 @@
 #include "libplatform/libplatform.h"
 #include "libplatform/v8-tracing.h"
 #include "platform/platform.h"
-#include "sourcemap.def"
+#include "sourcemap.h"
 
 #ifdef V8_USE_PERFETTO
 #error Unsupported Perfetto.
@@ -1288,10 +1288,7 @@ v8::MaybeLocal<v8::Value> PrepareStackTraceCallback(v8::Local<v8::Context> conte
         buffer << sourceMapfile.rdbuf();
         content = buffer.str();
     }
-    auto sourceMapObject =
-        v8::String::NewFromUtf8(isolate, content.c_str(), v8::NewStringType::kNormal, content.length());
-    v8::Local<v8::Value> args[] = { error, trace, sourceMapObject.ToLocalChecked() };
-    return resultFunc->Call(moduleContext, v8::Undefined(isolate), jsvm::ArraySize(args), args);
+    return ParseSourceMap(isolate, moduleContext, error, trace, resultFunc, content);
 }
 
 JSVM_Status OH_JSVM_CompileScriptWithOrigin(JSVM_Env env,
