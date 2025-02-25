@@ -1348,7 +1348,7 @@ public:
         for (size_t i = 0; i < length; i++) {
             switch (options[i].id) {
                 case JSVM_COMPILE_MODE: {
-                    v8Option = static_cast<v8::ScriptCompiler::CompileOptions>(options[i].content.num);
+                    SetOption(options[i].content.num);
                     break;
                 }
                 case JSVM_COMPILE_CODE_CACHE: {
@@ -1406,6 +1406,23 @@ public:
     bool enableSourceMap = false;
     static size_t compileCount;
     bool hasInvalidOption = false;
+
+private:
+    v8::ScriptCompiler::CompileOptions jsvmToOptions[] = {
+        v8::ScriptCompiler::kNoCompileOptions,
+        v8::ScriptCompiler::kConsumeCodeCache,
+        v8::ScriptCompiler::kEagerCompile,
+        v8::ScriptCompiler::kProduceCompileHints,
+        v8::ScriptCompiler::kConsumeCompileHints};
+    
+    void SetOption(int contentNum)
+    {
+        if (contentNum >= JSVM_COMPILE_MODE_DEFAULT && contentNum <= JSVM_COMPILE_MODE_CONSUME_COMPILE_PROFILE) {
+            v8Option = jsvmToOptions[contentNum];
+        } else {
+            hasInvalidOption = true;
+        }
+    }
 };
 
 size_t CompileOptionResolver::compileCount = 0;
