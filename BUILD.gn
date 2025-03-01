@@ -11,7 +11,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 import("//build/config/clang/clang.gni")
 import("//build/ohos.gni")
 import("jsvm.gni")
@@ -49,8 +48,7 @@ action("copy_llhttp") {
 }
 
 config("libv8_config") {
-  include_dirs =
-      [ "$target_gen_dir/v8-include" ]
+  include_dirs = [ "$target_gen_dir/v8-include" ]
 }
 
 ohos_prebuilt_shared_library("libv8") {
@@ -185,8 +183,13 @@ config("libjsvm_config") {
   }
 }
 
+config("public_jsvm_config") {
+  include_dirs = [ "interface/kits" ]
+}
+
 ohos_shared_library("libjsvm") {
   sources = jsvm_sources
+  public_configs = [ ":public_jsvm_config" ]
   if (use_platform_ohos && is_ohos) {
     sources += [ "src/platform/platform_ohos.cpp" ]
   } else {
