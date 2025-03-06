@@ -122,7 +122,7 @@ static void RemoveFromBeginning(std::vector<char>* buffer, size_t count)
 
 static const char CLOSE_FRAME[] = { '\x88', '\x00' };
 
-enum WsDecodeResult { FRAME_OK, FRAME_INCOMPLETE, FRAME_CLOSE, FRAME_ERROR };
+enum WsDecodeResult { FRAME_OK, FRAME_INCOMPLETE, FRAME_CLOSE, FRAME_ERROR, FRAME_PING };
 
 static void GenerateAcceptString(const std::string& clientKey, char (*buffer)[ACCEPT_KEY_LENGTH])
 {
@@ -240,6 +240,7 @@ const unsigned char K_RESERVED_3_BIT = 0x10;
 const unsigned char K_OP_CODE_MASK = 0xF;
 const unsigned char K_MASK_BIT = 0x80;
 const unsigned char K_PAYLOAD_LENGTH_MASK = 0x7F;
+const unsigned char K_PONG_FRAME_HEADER = 0x8A;
 
 const size_t K_MAX_SINGLE_BYTE_PAYLOAD_LENGTH = 125;
 const size_t K_TWO_BYTE_PAYLOAD_LENGTH_FIELD = 126;
@@ -303,15 +304,21 @@ static WsDecodeResult DecodeFrameHybi17(const std::vector<char>& buffer,
     }
 
     bool closed = false;
+    uint64_t payloadLength64 = secondByte & K_PAYLOAD_LENGTH_MASK;
     switch (opCode) {
         case K_OP_CODE_CLOSE:
             closed = true;
             break;
         case K_OP_CODE_TEXT:
             break;
+        case K_OP_CODE_PING: {
+            output->push_back(K_PONG_FRAME_HEADER);
+            output->push_back(static_cast<char>(payloadLength64));
+            output->insert(output->end(), it, it + payloadLength64);
+            return FRAME_PING;
+        }
         case K_OP_CODE_BINARY:       // We don't support binary frames yet.
         case K_OP_CODE_CONTINUATION: // We don't support binary frames yet.
-        case K_OP_CODE_PING:         // We don't support binary frames yet.
         case K_OP_CODE_PONG:         // We don't support binary frames yet.
         default:
             return FRAME_ERROR;
@@ -322,7 +329,6 @@ static WsDecodeResult DecodeFrameHybi17(const std::vector<char>& buffer,
         return FRAME_ERROR;
     }
 
-    uint64_t payloadLength64 = secondByte & K_PAYLOAD_LENGTH_MASK;
     if (payloadLength64 > K_MAX_SINGLE_BYTE_PAYLOAD_LENGTH) {
         int extendedPayloadLengthSize;
         if (payloadLength64 == K_TWO_BYTE_PAYLOAD_LENGTH_FIELD) {
@@ -457,6 +463,8 @@ private:
             bytesConsumed = 0;
         } else if (r == FRAME_OK) {
             GetDelegate()->OnWsFrame(output);
+        } else if (r == FRAME_PING) {
+            WriteRaw(output, WriteRequest::Cleanup);
         }
         return bytesConsumed;
     }
