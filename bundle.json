@@ -12,9 +12,7 @@
     "component": {
         "name": "jsvm",
         "subsystem": "arkcompiler",
-        "syscap": [
-            "SystemCapability.ArkCompiler.JSVM"
-        ],
+        "syscap": [],
         "features": [],
         "adapted_system_type": [
             "standard"
@@ -31,6 +29,7 @@
                 "icu",
                 "init",
                 "libuv",
+                "nghttp2",
                 "openssl",
                 "resource_schedule_service",
                 "zlib"
@@ -49,7 +48,7 @@
                             "jsvm.h"
                         ]
                     },
-                    "name": "//arkcompiler/jsvm:jsvm_packages"
+                    "name": "//arkcompiler/jsvm:libjsvm"
                 }
             ],
             "test": []
