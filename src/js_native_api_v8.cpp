@@ -32,7 +32,7 @@
 #include "jsvm.h"
 #include "jsvm_env.h"
 #include "jsvm_log.h"
-#include "jsvm_reference.h"
+#include "jsvm_reference-inl.h"
 #include "jsvm_util.h"
 #include "libplatform/libplatform.h"
 #include "libplatform/v8-tracing.h"
@@ -3258,7 +3258,9 @@ JSVM_Status OH_JSVM_CreateExternal(JSVM_Env env,
 
     v8::Local<v8::Value> externalValue = v8::External::New(isolate, data);
 
-    v8impl::RuntimeReference::New(env, externalValue, finalizeCb, data, finalizeHint);
+    if (finalizeCb) {
+        v8impl::RuntimeReference::New(env, externalValue, finalizeCb, data, finalizeHint);
+    }
 
     *result = v8impl::JsValueFromV8LocalValue(externalValue);
 
