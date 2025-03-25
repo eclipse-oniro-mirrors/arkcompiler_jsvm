@@ -107,7 +107,7 @@ EXTERN_C_START
  *         {@link JSVM_OK } if the function executed successfully.\n
  *         {@link JSVM_INVALID_ARG } if any of the pointer arguments is NULL.\n
  *
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_IsBigIntObject(JSVM_Env env, JSVM_Value value, bool* result);
 
@@ -121,7 +121,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_IsBigIntObject(JSVM_Env env, JSVM_Value value, b
  *         {@link JSVM_OK } if the function executed successfully.\n
  *         {@link JSVM_INVALID_ARG } if any of the pointer arguments is NULL.\n
  *
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_IsBooleanObject(JSVM_Env env, JSVM_Value value, bool* result);
 
@@ -135,7 +135,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_IsBooleanObject(JSVM_Env env, JSVM_Value value, 
  *         {@link JSVM_OK } if the function executed successfully.\n
  *         {@link JSVM_INVALID_ARG } if any of the pointer arguments is NULL.\n
  *
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_IsStringObject(JSVM_Env env, JSVM_Value value, bool* result);
 
@@ -149,7 +149,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_IsStringObject(JSVM_Env env, JSVM_Value value, b
  *         {@link JSVM_OK } if the function executed successfully.\n
  *         {@link JSVM_INVALID_ARG } if any of the pointer arguments is NULL.\n
  *
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_IsNumberObject(JSVM_Env env, JSVM_Value value, bool* result);
 
@@ -163,7 +163,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_IsNumberObject(JSVM_Env env, JSVM_Value value, b
  *         {@link JSVM_OK } if the function executed successfully.\n
  *         {@link JSVM_INVALID_ARG } if any of the pointer arguments is NULL.\n
  *
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_IsSymbolObject(JSVM_Env env, JSVM_Value value, bool* result);
 
@@ -176,7 +176,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_IsSymbolObject(JSVM_Env env, JSVM_Value value, b
  *         {@link JSVM_OK } if the function executed successfully.\n
  *         {@link JSVM_INVALID_ARG } if any of the pointer arguments is NULL.\n
  *
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_GetSymbolAsyncIterator(JSVM_Env env, JSVM_Value* result);
 
@@ -189,7 +189,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_GetSymbolAsyncIterator(JSVM_Env env, JSVM_Value*
  *         {@link JSVM_OK } if the function executed successfully.\n
  *         {@link JSVM_INVALID_ARG } if any of the pointer arguments is NULL.\n
  *
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_GetSymbolHasInstance(JSVM_Env env, JSVM_Value* result);
 
@@ -202,7 +202,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_GetSymbolHasInstance(JSVM_Env env, JSVM_Value* r
  *         {@link JSVM_OK } if the function executed successfully.\n
  *         {@link JSVM_INVALID_ARG } if any of the pointer arguments is NULL.\n
  *
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_GetSymbolIsConcatSpreadable(JSVM_Env env, JSVM_Value* result);
 
@@ -215,7 +215,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_GetSymbolIsConcatSpreadable(JSVM_Env env, JSVM_V
  *         {@link JSVM_OK } if the function executed successfully.\n
  *         {@link JSVM_INVALID_ARG } if any of the pointer arguments is NULL.\n
  *
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_GetSymbolMatch(JSVM_Env env, JSVM_Value* result);
 
@@ -228,7 +228,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_GetSymbolMatch(JSVM_Env env, JSVM_Value* result)
  *         {@link JSVM_OK } if the function executed successfully.\n
  *         {@link JSVM_INVALID_ARG } if any of the pointer arguments is NULL.\n
  *
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_GetSymbolReplace(JSVM_Env env, JSVM_Value* result);
 
@@ -241,7 +241,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_GetSymbolReplace(JSVM_Env env, JSVM_Value* resul
  *         {@link JSVM_OK } if the function executed successfully.\n
  *         {@link JSVM_INVALID_ARG } if any of the pointer arguments is NULL.\n
  *
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_GetSymbolSearch(JSVM_Env env, JSVM_Value* result);
 
@@ -254,7 +254,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_GetSymbolSearch(JSVM_Env env, JSVM_Value* result
  *         {@link JSVM_OK } if the function executed successfully.\n
  *         {@link JSVM_INVALID_ARG } if any of the pointer arguments is NULL.\n
  *
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_GetSymbolSplit(JSVM_Env env, JSVM_Value* result);
 
@@ -267,7 +267,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_GetSymbolSplit(JSVM_Env env, JSVM_Value* result)
  *         {@link JSVM_OK } if the function executed successfully.\n
  *         {@link JSVM_INVALID_ARG } if any of the pointer arguments is NULL.\n
  *
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_GetSymbolToPrimitive(JSVM_Env env, JSVM_Value* result);
 
@@ -280,7 +280,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_GetSymbolToPrimitive(JSVM_Env env, JSVM_Value* r
  *         {@link JSVM_OK } if the function executed successfully.\n
  *         {@link JSVM_INVALID_ARG } if any of the pointer arguments is NULL.\n
  *
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_GetSymbolUnscopables(JSVM_Env env, JSVM_Value* result);
 
@@ -293,7 +293,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_GetSymbolUnscopables(JSVM_Env env, JSVM_Value* r
  *         {@link JSVM_OK } if the function executed successfully.\n
  *         {@link JSVM_INVALID_ARG } if any of the pointer arguments is NULL.\n
  *
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_GetSymbolToStringTag(JSVM_Env env, JSVM_Value* result);
 
@@ -306,7 +306,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_GetSymbolToStringTag(JSVM_Env env, JSVM_Value* r
  *         {@link JSVM_OK } if the function executed successfully.\n
  *         {@link JSVM_INVALID_ARG } if any of the pointer arguments is NULL.\n
  *
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_GetSymbolIterator(JSVM_Env env, JSVM_Value* result);
 
@@ -336,7 +336,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_CreateVM(const JSVM_CreateVMOptions* options, JS
  * @param vm The VM instance to set mircrotasks policy.
  * @param policy Policy for running microtasks.
  * @return Returns JSVM_OK if the API succeeded.
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_SetMicrotaskPolicy(JSVM_VM vm, JSVM_MicrotaskPolicy policy);
 
@@ -364,7 +364,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_DestroyVM(JSVM_VM vm);
  *         {@link JSVM_OBJECT_EXPECTED} if target or handler is not Javascript Object. \n
  *         {@link JSVM_PENDING_EXCEPTION} if an exception occurs. \n
  *
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_CreateProxy(JSVM_Env env, JSVM_Value target, JSVM_Value handler, JSVM_Value* result);
 
@@ -378,7 +378,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_CreateProxy(JSVM_Env env, JSVM_Value target, JSV
  *         {@link JSVM_OK } if the API succeeded. \n
  *         {@link JSVM_INVALID_ARG } if the any of the input arguments is NULL. \n
  *
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_IsProxy(JSVM_Env env, JSVM_Value value, bool* isProxy);
 
@@ -393,7 +393,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_IsProxy(JSVM_Env env, JSVM_Value value, bool* is
  *         {@link JSVM_INVALID_ARG } if the any of the input arguments is NULL. \n
  *         {@link JSVM_INVALID_TYPE} if value is not a Javascript Proxy. \n
  *
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_ProxyGetTarget(JSVM_Env env, JSVM_Value value, JSVM_Value* result);
 
@@ -827,7 +827,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_CreateReference(JSVM_Env env,
  * @return Returns JSVM funtions result code.
  *         {@link JSVM_OK } if the function executed successfully.\n
  *         {@link JSVM_INVALID_ARG } if any parameter is null or the value of initialRefcount is 0.\n
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_CreateDataReference(JSVM_Env env,
                                                     JSVM_Data data,
@@ -891,7 +891,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_GetReferenceValue(JSVM_Env env, JSVM_Ref ref, JS
  *         {@link JSVM_OK } if the function executed successfully.\n
  *         {@link JSVM_INVALID_ARG } if any parameter is null or the ref is not a reference to JSVM_Data.\n
  *
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_GetReferenceData(JSVM_Env env, JSVM_Ref ref, JSVM_Data* result);
 
@@ -1066,7 +1066,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_SymbolFor(JSVM_Env env, const char* utf8descript
  *         {@link JSVM_OK } if the function executed successfully.\n
  *         {@link JSVM_INVALID_ARG } if env or result is NULL.\n
  *         {@link JSVM_STRING_EXPECTED } if the description is not a string.\n
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_CreatePrivate(JSVM_Env env, JSVM_Value description, JSVM_Data* result);
 
@@ -1083,7 +1083,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_CreatePrivate(JSVM_Env env, JSVM_Value descripti
  *         {@link JSVM_OBJECT_EXPECTED } object passed in is not a real object.\n
  *         {@link JSVM_GENERIC_FAILURE } if failed to set the private key but no exception is pending.\n
  *         {@link JSVM_PENDING_EXCPTION } if an exception occurs.\n
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_SetPrivate(JSVM_Env env, JSVM_Value object, JSVM_Data key, JSVM_Value value);
 
@@ -1100,7 +1100,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_SetPrivate(JSVM_Env env, JSVM_Value object, JSVM
  *         {@link JSVM_OBJECT_EXPECTED } object passed in is not a real object.\n
  *         {@link JSVM_GENERIC_FAILURE } if failed to get the private key but no exception is pending.\n
  *         {@link JSVM_PENDING_EXCPTION } if an exception occurs.\n
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_GetPrivate(JSVM_Env env, JSVM_Value object, JSVM_Data key, JSVM_Value* result);
 
@@ -1116,7 +1116,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_GetPrivate(JSVM_Env env, JSVM_Value object, JSVM
  *         {@link JSVM_OBJECT_EXPECTED } object passed in is not a real object.\n
  *         {@link JSVM_GENERIC_FAILURE } if failed to delete the private key but no exception is pending.\n
  *         {@link JSVM_PENDING_EXCPTION } if an exception occurs.\n
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_DeletePrivate(JSVM_Env env, JSVM_Value object, JSVM_Data key);
 
@@ -1302,7 +1302,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_CreateStringUtf8(JSVM_Env env, const char* str, 
  * @return Returns JSVM funtions result code.
  *         Returns {@link JSVM_OK } if the function executed successfully.\n
  *         Returns {@link JSVM_INVALID_ARG } if one of env, str and copied is NULL.\n
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_CreateExternalStringLatin1(JSVM_Env env,
                                                            char* str,
@@ -1328,7 +1328,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_CreateExternalStringLatin1(JSVM_Env env,
  * @return Returns JSVM funtions result code.
  *         Returns {@link JSVM_OK } if the function executed successfully.\n
  *         Returns {@link JSVM_INVALID_ARG } if one of env, str and copied is NULL.\n
- * @since 16
+ * @since 18
  */
 
 JSVM_EXTERN JSVM_Status OH_JSVM_CreateExternalStringUtf16(JSVM_Env env,
@@ -1736,7 +1736,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_Instanceof(JSVM_Env env, JSVM_Value object, JSVM
  *         {@link JSVM_OK } if the function executed successfully.\n
  *         {@link JSVM_INVALID_ARG } if the vm or the handler is NULL or the handler has been added before.\n
  *
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_AddHandlerForGC(JSVM_VM vm,
                                                 JSVM_CBTriggerTimeForGC triggerTime,
@@ -1756,7 +1756,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_AddHandlerForGC(JSVM_VM vm,
  *         {@link JSVM_INVALID_ARG } if the vm or the handler is NULL, or the handler has been removed,
  * or the handler has never been added.\n
  *
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_RemoveHandlerForGC(JSVM_VM vm,
                                                    JSVM_CBTriggerTimeForGC triggerTime,
@@ -1773,7 +1773,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_RemoveHandlerForGC(JSVM_VM vm,
  *         {@link JSVM_OK } if the function executed successfully.\n
  *         {@link JSVM_INVALID_ARG } if vm is NULL.\n
  *
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_SetHandlerForOOMError(JSVM_VM vm, JSVM_HandlerForOOMError handler);
 
@@ -1787,7 +1787,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_SetHandlerForOOMError(JSVM_VM vm, JSVM_HandlerFo
  *         {@link JSVM_OK } if the function executed successfully.\n
  *         {@link JSVM_INVALID_ARG } if vm is NULL.\n
  *
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_SetHandlerForFatalError(JSVM_VM vm, JSVM_HandlerForFatalError handler);
 
@@ -1801,7 +1801,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_SetHandlerForFatalError(JSVM_VM vm, JSVM_Handler
  *         {@link JSVM_OK } if the function executed successfully.\n
  *         {@link JSVM_INVALID_ARG } if vm is NULL.\n
  *
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_SetHandlerForPromiseReject(JSVM_VM vm, JSVM_HandlerForPromiseReject handler);
 
@@ -2499,7 +2499,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_IsPromise(JSVM_Env env, JSVM_Value value, bool* 
  *         {@link JSVM_PENDING_EXCEPTION} if an exception occurs. \n
  *         {@link JSVM_GENERIC_FAILURE} if the API failed. \n
  *
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_PromiseRegisterHandler(JSVM_Env env,
                                                        JSVM_Value promise,
@@ -3123,7 +3123,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_ReleaseCache(JSVM_Env env, const uint8_t* cacheD
  *         {@link JSVM_OK } if the function executed successfully.\n
  *         {@link JSVM_INVALID_ARG } if categories or count is illegal.\n
  *
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_TraceStart(size_t count,
                                            const JSVM_TraceCategory* categories,
@@ -3139,7 +3139,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_TraceStart(size_t count,
  *         {@link JSVM_OK } if the function executed successfully.\n
  *         {@link JSVM_INVALID_ARG } if stream or streamData is NULL\n
  *
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_TraceStop(JSVM_OutputStream stream, void* streamData);
 
@@ -3170,7 +3170,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_TraceStop(JSVM_OutputStream stream, void* stream
  *         {@link JSVM_OK } if the function executed successfully. \n
  *         {@link JSVM_INVALID_ARG } if any of the pointer arguments is NULL. \n
  *         {@link JSVM_GENERIC_FAILURE} if the input utf8name | constructor | properties is invalid. \n
- * @since 16
+ * @since 18
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_DefineClassWithOptions(JSVM_Env env,
                                                        const char* utf8name,
