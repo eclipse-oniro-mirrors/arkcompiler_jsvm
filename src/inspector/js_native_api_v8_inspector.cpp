@@ -36,6 +36,8 @@
 #include <sstream>
 #include <unordered_map>
 #include <vector>
+#undef LOG_DOMAIN
+#define LOG_DOMAIN 0xD003F00
 
 namespace v8impl {
 
@@ -1203,20 +1205,21 @@ int FindAvailablePort()
         if (sockfd < 0) {
             continue;
         }
+        fdsan_exchange_owner_tag(sockfd, 0, LOG_DOMAIN);
         struct sockaddr_in addr;
         addr.sin_family = AF_INET;
         addr.sin_addr.s_addr = htonl(INADDR_ANY);
         addr.sin_port = htons(port);
 
         if (bind(sockfd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
-            close(sockfd);
+            fdsan_close_with_tag(sockfd, LOG_DOMAIN);
             if (errno == EADDRINUSE) {
                 continue;
             } else {
                 break;
             }
         }
-        close(sockfd);
+        fdsan_close_with_tag(sockfd, LOG_DOMAIN);
         return port;
     }
     return invalidPort;
