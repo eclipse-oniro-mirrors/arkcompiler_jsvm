@@ -12,7 +12,9 @@
     "component": {
         "name": "jsvm",
         "subsystem": "arkcompiler",
-        "syscap": [],
+        "syscap": [
+            "SystemCapability.ArkCompiler.JSVM"
+        ],
         "features": [],
         "adapted_system_type": [
             "standard"
