@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-export SCRIPT_PATCH=$(dirname $(readlink -f "$0"))
 export TARGET_GEN_DIR=$2
- 
-cp -u ${SCRIPT_PATCH}/../../third_party/node/deps/v8/libv8_shared.so ${TARGET_GEN_DIR}/libv8_shared.so
-cp -r ${SCRIPT_PATCH}/../../third_party/node/deps/v8/include/v8-include ${TARGET_GEN_DIR}/v8-include
+v8_path=$3
+target_cpu=$4
 
+cp -u ${v8_path}/v8/${target_cpu}/libv8_shared.so ${TARGET_GEN_DIR}/libv8_shared.so
+cp -r ${v8_path}/v8-include/v8-include ${TARGET_GEN_DIR}/v8-include
