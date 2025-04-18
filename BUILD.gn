@@ -15,6 +15,13 @@ import("//build/config/clang/clang.gni")
 import("//build/ohos.gni")
 import("jsvm.gni")
 
+ohos_prebuilt_etc("app_jit_enable_list") {
+  relative_install_dir = "jsvm"
+  source = "./app_jit_enable_list.conf"
+  part_name = "jsvm"
+  subsystem_name = "arkcompiler"
+}
+
 action("copy_v8") {
   external_deps = []
   deps = []
@@ -27,6 +34,8 @@ action("copy_v8") {
   args = [
     "--target_gen_dir",
     rebase_path("$target_gen_dir"),
+    rebase_path("//vendor/huawei/binary/artifacts/js_engine_url/"),
+    target_cpu,
   ]
 }
 
@@ -62,7 +71,6 @@ ohos_prebuilt_shared_library("libv8") {
 
   install_enable = true
   install_images = [ "system" ]
-  innerapi_tags = [ "ndk" ]
 }
 
 config("llhttp_config") {
@@ -83,150 +91,87 @@ ohos_static_library("llhttp") {
   part_name = "jsvm"
 }
 
-config("jsvm_common_config") {
-  cflags = [
-    "-fstack-protector-strong",
-    "--target=aarch64-linux-ohos",
-    "-march=armv8-a",
-    "-mfpu=neon",
-    "-m64",
-    "-msign-return-address=all",
-    "-pthread",
-    "-Wall",
-    "-Wextra",
-    "-Wno-unused-parameter",
-    "-fPIC",
-    "-Werror=unused-result",
-    "-O3",
-    "-fno-omit-frame-pointer",
-    "-fno-rtti",
-    "-fno-exceptions",
-    "-std=gnu++17",
-    "-fvisibility=hidden",
-  ]
-
-  ldflags = [ "-fvisibility=hidden" ]
-
-  defines = []
-  if (use_platform_ohos && is_ohos) {
-    defines += [
-      "TARGET_OHOS",
-      "ENABLE_HISYSEVENT",
-    ]
-  }
-
-  if (enable_debug) {
-    cflags += [ "-g" ]
-    defines += [ "DEBUG" ]
-  }
-
-  defines += [
-    "_GLIBCXX_USE_CXX11_ABI=1",
-    "__STDC_FORMAT_MACROS",
-    "__POSIX__",
-  ]
-
-  include_dirs = [
-    "interface/innerkits",
-    "interface/kits",
-    "src",
-  ]
-}
-
-config("jsvm_inspector_config") {
-  defines = [
-    "ENABLE_INSPECTOR",
-    "HAVE_OPENSSL=1",
-  ]
-}
-
-ohos_source_set("jsvm_inspector") {
-  sources = jsvm_inspector_sources
-  include_dirs = [ "inspector" ]
-
-  configs = [
-    ":jsvm_common_config",
-    ":jsvm_inspector_config",
-  ]
-
-  subsystem_name = "arkcompiler"
-  part_name = "jsvm"
-
-  deps = [
-    ":libv8",
-    ":llhttp",
-  ]
-
-  external_deps = [
-    "bounds_checking_function:libsec_static",
-    "icu:shared_icui18n",
-    "icu:shared_icuuc",
-    "openssl:libcrypto_shared",
-    "openssl:libssl_shared",
-    "zlib:libz",
-  ]
-
-  if (jsvm_shared_libuv) {
-    external_deps += [ "libuv:uv" ]
-  } else {
-    external_deps += [ "libuv:uv_static" ]
-  }
-}
-
-config("libjsvm_config") {
-  defines = []
-  if (enable_inspector) {
-    defines += [
-      "ENABLE_INSPECTOR",
-      "HAVE_OPENSSL=1",
-    ]
-  }
-}
-
 config("public_jsvm_config") {
   include_dirs = [ "interface/kits" ]
 }
 
-ohos_shared_library("libjsvm") {
-  sources = jsvm_sources
-  public_configs = [ ":public_jsvm_config" ]
-  if (use_platform_ohos && is_ohos) {
-    sources += [ "src/platform/platform_ohos.cpp" ]
-  } else {
-    sources += [ "src/platform/platform.cpp" ]
-  }
-  configs = [
-    ":jsvm_common_config",
-    ":libjsvm_config",
+ohos_prebuilt_shared_library("libjsvm") {
+  deps = [
+    ":app_jit_enable_list",
+    ":build_libjsvm",
   ]
 
-  deps = [ ":libv8" ]
-  if (enable_inspector) {
-    deps += [ ":jsvm_inspector" ]
+  public_configs = [ ":public_jsvm_config" ]
+  if (is_asan && use_hwasan) {
+    source = "$target_gen_dir/asan/libjsvm.so"
+  } else {
+    source = "$target_gen_dir/libjsvm.so"
   }
-
-  external_deps = []
-
-  if (use_platform_ohos && is_ohos) {
-    external_deps += [
-      "bounds_checking_function:libsec_static",
-      "hilog:libhilog",
-      "hisysevent:libhisysevent",
-      "hitrace:hitrace_meter",
-      "init:libbegetutil",
-      "resource_schedule_service:ressched_client",
-    ]
-  }
-
-  output_name = "libjsvm"
-  output_extension = "so"
-
   subsystem_name = "arkcompiler"
   part_name = "jsvm"
 
   install_enable = true
   install_images = [ "system" ]
   innerapi_tags = [ "ndk" ]
+}
+
+action("build_libjsvm") {
+  external_deps = [
+    "bounds_checking_function:libsec_static",
+    "hilog:libhilog",
+    "hisysevent:libhisysevent",
+    "hitrace:hitrace_meter",
+    "icu:shared_icui18n",
+    "icu:shared_icuuc",
+    "init:libbegetutil",
+    "libuv:uv",
+    "openssl:libcrypto_shared",
+    "openssl:libssl_shared",
+    "resource_schedule_service:ressched_client",
+    "zlib:libz",
+  ]
+
+  deps = [
+    ":libv8",
+    ":llhttp",
+  ]
+  configs = []
+  script = "build_jsvm.sh"
+  sources = []
+  if (is_asan && use_hwasan) {
+    outputs = [ "$target_gen_dir/asan/libjsvm.so" ]
+  } else {
+    outputs = [ "$target_gen_dir/libjsvm.so" ]
+  }
+  args = [
+    "--target_gen_dir",
+    rebase_path("$target_gen_dir"),
+    "--target_out_dir",
+    rebase_path("$root_out_dir"),
+    "--target_cpu",
+    "$target_cpu",
+    "--target_platform",
+    "$target_platform",
+    "--prefix",
+    rebase_path("$clang_base_path/bin"),
+    "--sysroot",
+    rebase_path("$musl_sysroot"),
+    "--is_asan",
+    "$is_asan",
+    "--use_hwasan",
+    "$use_hwasan",
+    "{{include_dirs}}",
+    "--cmake_path",
+    rebase_path("//prebuilts/cmake/linux-x86/bin/cmake"),
+    "--jsvm_path",
+    rebase_path("."),
+  ]
+  if (use_clang_coverage) {
+    args += [
+      "--target_clang_coverage",
+      "$use_clang_coverage",
+    ]
+  }
 }
 
 group("jsvm_packages") {
