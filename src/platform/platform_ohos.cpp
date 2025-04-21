@@ -27,7 +27,11 @@
 #ifdef ENABLE_HISYSEVENT
 #include "hisysevent.h"
 #endif
+#include <string>
+#include <sys/prctl.h>
+#include <unordered_set>
 
+#define USE_C_API
 namespace platform {
 void OS::Abort()
 {
@@ -110,7 +114,80 @@ RunJsTrace::~RunJsTrace()
     }
 }
 
+#ifdef USE_C_API
+namespace ResourceSchedule {
+namespace ResType {
+extern "C" void ReportData(uint32_t resType,
+                           int64_t value,
+                           const std::unordered_map<std::string, std::string>& mapPayLoad);
+
+enum : uint32_t { RES_TYPE_REPORT_KEY_THREAD = 39 };
+
+enum ReportChangeStatus : int64_t { CREATE = 0, REMOVE = 1 };
+
+enum ThreadRole : int64_t {
+    USER_INTERACT = 0,
+    NORMAL_DISPLAY = 1,
+    IMPORTANT_DISPLAY = 2,
+    NORMAL_AUDIO = 3,
+    IMPORTANT_AUDIO = 4,
+    IMAGE_DECODE = 5
+};
+} // namespace ResType
+} // namespace ResourceSchedule
+#endif
+
+static bool isJitMode = true;
 namespace ohos {
+#define JITFORT_QUERY_ENCAPS 'E'
+#define HM_PR_SET_JITFORT 0x6a6974
+ 
+const std::string ENABLE_JIT_CONF_PATH = "/etc/jsvm/app_jit_enable_list.conf";
+bool ProcessBundleName(std::string& bundleName);
+ 
+void ReadEnableList(const std::string& jitConfigPath, std::unordered_set<std::string>& enableSet)
+{
+    std::ifstream file(jitConfigPath);
+    if (file.is_open()) {
+        std::string line;
+        while (std::getline(file, line)) {
+            if (!line.empty()) {
+                enableSet.insert(line);
+            }
+        }
+        file.close();
+    }
+}
+ 
+bool InJitMode()
+{
+    return isJitMode;
+}
+ 
+inline bool InAppEnableList(const std::string& bundleName, std::unordered_set<std::string>& enableSet)
+{
+    return (enableSet.count(bundleName) != 0);
+}
+ 
+inline bool HasJitfortACL()
+{
+    return (prctl(HM_PR_SET_JITFORT, JITFORT_QUERY_ENCAPS, 0) == 0);
+}
+
+#ifdef USE_C_API
+void ReportKeyThread(ThreadRole role)
+{
+    uint64_t uid = OS::GetUid();
+    uint64_t tid = OS::GetTid();
+    uint64_t pid = OS::GetPid();
+    std::unordered_map<std::string, std::string> payLoad = { { "uid", std::to_string(uid) },
+                                                             { "pid", std::to_string(pid) },
+                                                             { "tid", std::to_string(tid) },
+                                                             { "role", std::to_string(role) } };
+    ReportData(ResourceSchedule::ResType::RES_TYPE_REPORT_KEY_THREAD,
+               ResourceSchedule::ResType::ReportChangeStatus::CREATE, payLoad);
+}
+#else
 void ReportKeyThread(ThreadRole role)
 {
     static_assert(static_cast<int64_t>(ThreadRole::IMPORTANT_DISPLAY) ==
@@ -129,6 +206,7 @@ void ReportKeyThread(ThreadRole role)
         OHOS::ResourceSchedule::ResType::RES_TYPE_REPORT_KEY_THREAD,
         OHOS::ResourceSchedule::ResType::ReportChangeStatus::CREATE, payLoad);
 }
+#endif
 
 inline bool ReadSystemXpmState()
 {
@@ -145,7 +223,15 @@ inline bool ReadSystemXpmState()
 void SetSecurityMode()
 {
     constexpr size_t secArgCnt = 2;
-    if (ReadSystemXpmState()) {
+    std::string bundleName;
+    if (!ProcessBundleName(bundleName)) {
+        bundleName = "INVALID_BUNDLE_NAME";
+    }
+    std::unordered_set<std::string> enableList {};
+    ReadEnableList(ENABLE_JIT_CONF_PATH, enableList);
+
+    if (ReadSystemXpmState() || (!InAppEnableList(bundleName, enableList) && !HasJitfortACL())) {
+        isJitMode = false;
         int secArgc = secArgCnt;
         constexpr bool removeFlag = false;
         const char* secArgv[secArgCnt] = { "jsvm", "--jitless" };

@@ -1009,11 +1009,10 @@ JSVM_Status OH_JSVM_Init(const JSVM_InitOptions* options)
     OHOS_API_CALL(platform::ohos::ReportKeyThread(platform::ohos::ThreadRole::IMPORTANT_DISPLAY));
     v8::V8::InitializePlatform(v8impl::g_platform.get());
 
-    OHOS_API_CALL(platform::ohos::SetSecurityMode());
-
     if (options && options->argc && options->argv) {
         v8::V8::SetFlagsFromCommandLine(options->argc, options->argv, options->removeFlags);
     }
+    OHOS_API_CALL(platform::ohos::SetSecurityMode());
     v8::V8::Initialize();
 
     const auto cb = v8impl::FunctionCallbackWrapper::Invoke;
@@ -1408,7 +1407,7 @@ public:
     bool hasInvalidOption = false;
 
 private:
-    v8::ScriptCompiler::CompileOptions jsvmToOptions[] = {
+    static constexpr v8::ScriptCompiler::CompileOptions jsvmToOptions[] = {
         v8::ScriptCompiler::kNoCompileOptions,
         v8::ScriptCompiler::kConsumeCodeCache,
         v8::ScriptCompiler::kEagerCompile,
@@ -1714,6 +1713,7 @@ static const char* errorMessages[] = {
     "External buffers are not allowed",
     "Cannot run JavaScript",
     "Invalid type",
+    "Cannot run in Jitless Mode",
 };
 
 JSVM_Status OH_JSVM_GetLastErrorInfo(JSVM_Env env, const JSVM_ExtendedErrorInfo** result)
@@ -1725,7 +1725,7 @@ JSVM_Status OH_JSVM_GetLastErrorInfo(JSVM_Env env, const JSVM_ExtendedErrorInfo*
     // message in the `JSVM_Status` enum each time a new error message is added.
     // We don't have a jsvm_status_last as this would result in an ABI
     // change each time a message was added.
-    const int lastStatus = JSVM_INVALID_TYPE;
+    const int lastStatus = JSVM_JIT_MODE_EXPECTED;
 
     static_assert(jsvm::ArraySize(errorMessages) == lastStatus + 1,
                   "Count of error messages must match count of error values");
@@ -4587,6 +4587,8 @@ JSVM_Status OH_JSVM_CompileWasmModule(JSVM_Env env,
                                       JSVM_Value* wasmModule)
 {
     JSVM_PREAMBLE(env);
+    // add jit mode check
+    RETURN_STATUS_IF_FALSE(env, platform::ohos::InJitMode(), JSVM_JIT_MODE_EXPECTED);
     CHECK_ARG(env, wasmBytecode);
     RETURN_STATUS_IF_FALSE(env, wasmBytecodeLength > 0, JSVM_INVALID_ARG);
     v8::MaybeLocal<v8::WasmModuleObject> maybeModule;
@@ -4614,7 +4616,10 @@ JSVM_Status OH_JSVM_CompileWasmFunction(JSVM_Env env,
                                         JSVM_WasmOptLevel optLevel)
 {
     JSVM_PREAMBLE(env);
+    // add jit mode check
+    RETURN_STATUS_IF_FALSE(env, platform::ohos::InJitMode(), JSVM_JIT_MODE_EXPECTED);
     CHECK_ARG(env, wasmModule);
+
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(wasmModule);
     RETURN_STATUS_IF_FALSE(env, val->IsWasmModuleObject(), JSVM_INVALID_ARG);
 
@@ -4653,6 +4658,8 @@ JSVM_Status OH_JSVM_IsWasmModuleObject(JSVM_Env env, JSVM_Value value, bool* res
 JSVM_Status OH_JSVM_CreateWasmCache(JSVM_Env env, JSVM_Value wasmModule, const uint8_t** data, size_t* length)
 {
     JSVM_PREAMBLE(env);
+    // add jit mode check
+    RETURN_STATUS_IF_FALSE(env, platform::ohos::InJitMode(), JSVM_JIT_MODE_EXPECTED);
     CHECK_ARG(env, wasmModule);
     CHECK_ARG(env, data);
     CHECK_ARG(env, length);

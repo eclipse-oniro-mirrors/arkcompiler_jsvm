@@ -24,10 +24,11 @@ do_patch() {
 
 do_configure() {
     use_libz_inner=0
-
+    
     if [ -f "${LIB_ROOT_DIR}/obj/vendor/huawei/foundation/bundlemanager/zlib_override/libz_inner.a" ];then
         use_libz_inner=1
     fi
+
     ${CMAKE_PATH} \
         -DLIB_ROOT_DIR=${LIB_ROOT_DIR}\
         -DTARGET_CPU=${TARGET_CPU}\
@@ -115,7 +116,7 @@ do_install_asan() {
     mkdir -p ${TARGET_GEN_DIR}/asan
     cp -u ${workdir}/libjsvm.so ${TARGET_GEN_DIR}/asan
     cp -u ${JSVM_PATH}/../../vendor/huawei/binary/artifacts/js_engine_url/v8/${TARGET_CPU}/lib.unstripped_v8/lib.unstripped/libv8_shared.so ${TARGET_GEN_DIR}/asan
-    
+
     mkdir -p ${TARGET_GEN_DIR}/../../../../../lib.unstripped/jsvm/
     cp -u ${workdir}/libjsvm.so ${TARGET_GEN_DIR}/../../../../../lib.unstripped/jsvm/
     cp -u ${JSVM_PATH}/../../vendor/huawei/binary/artifacts/js_engine_url/v8/${TARGET_CPU}/lib.unstripped_v8/lib.unstripped/libv8_shared.so ${TARGET_GEN_DIR}/../../../../../lib.unstripped/jsvm/
