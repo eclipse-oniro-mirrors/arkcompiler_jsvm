@@ -12,7 +12,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 #include "inspector_socket_server.h"
 
 #include <algorithm>
@@ -25,6 +24,7 @@
 #include <string>
 #include <unistd.h>
 
+#include "jsvm_dfx.h"
 #include "jsvm_version.h"
 #include "uv.h"
 #include "v8_inspector_protocol_json.h"
@@ -327,6 +327,7 @@ SocketSession* InspectorSocketServer::Session(int sessionId)
 void InspectorSocketServer::SessionStarted(int sessionId, const std::string& targetId, const std::string& wsKey)
 {
     SocketSession* session = Session(sessionId);
+    CHECK_NULL(session);
     if (!TargetExists(targetId)) {
         session->Decline();
         return;
@@ -360,6 +361,7 @@ void InspectorSocketServer::SessionTerminated(int sessionId)
 bool InspectorSocketServer::HandleGetRequest(int sessionId, const std::string& hostName, const std::string& path)
 {
     SocketSession* session = Session(sessionId);
+    CHECK_NULL(session);
     InspectorSocket* socket = session->GetWsSocket();
     if (!inspectPublishUid.http) {
         SendHttpNotFound(socket);
@@ -550,7 +552,9 @@ void SocketSession::Send(const std::string& message)
 void SocketSession::Delegate::OnHttpGet(const std::string& host, const std::string& path)
 {
     if (!server->HandleGetRequest(usessionId, host, path)) {
-        Session()->GetWsSocket()->CancelHandshake();
+        SocketSession* session = Session();
+        CHECK_NULL(session);
+        session->GetWsSocket()->CancelHandshake();
     }
 }
 
