@@ -153,7 +153,7 @@ action("build_libjsvm") {
     "--target_platform",
     "$target_platform",
     "--prefix",
-    rebase_path("//vendor/huawei/binary/artifacts/js_engine_url/llvm/bin"),
+    rebase_path("$clang_base_path/bin"),
     "--sysroot",
     rebase_path("$musl_sysroot"),
     "--is_asan",
