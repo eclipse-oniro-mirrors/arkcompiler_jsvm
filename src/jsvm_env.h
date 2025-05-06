@@ -153,6 +153,19 @@ public:
         dataStack.pop();
     }
 
+    void CreateScopeTracker()
+    {
+        scopeTracker = new jsvm::ScopeLifecycleTracker();
+    }
+
+    jsvm::ScopeLifecycleTracker* GetScopeTracker()
+    {
+        if (scopeTracker == nullptr) {
+            CreateScopeTracker();
+        }
+        return scopeTracker;
+    }
+
     // Shortcut for context()->GetIsolate()
     v8::Isolate* const isolate;
     v8impl::Persistent<v8::Context> contextPersistent;
@@ -182,12 +195,15 @@ public:
     int openHandleScopes = 0;
     int openCallbackScopes = 0;
     bool inGcFinalizer = false;
+    uint32_t debugFlags = 0;
 
 private:
     // Used for inspector
     jsvm::InspectorAgent* inspectorAgent;
     std::mutex messageQueueMutex;
     std::vector<Callback> messageQueue;
+    // Used for scopeInfo
+    jsvm::ScopeLifecycleTracker* scopeTracker = nullptr;
 
 protected:
     // Should not be deleted directly. Delete with `JSVM_Env__::DeleteMe()`

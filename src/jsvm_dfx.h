@@ -17,10 +17,13 @@
 #define JSVM_DFX_H
 
 #include <cassert>
+#include <unordered_map>
+#include <vector>
 
 #include "jsvm_log.h"
 #include "jsvm_version.h"
 #include "platform/platform.h"
+#include "jsvm_types.h"
 
 // v8 header
 #include "v8.h"
@@ -46,6 +49,62 @@ private:
     v8::SealHandleScope sealHandleScope;
 #endif
 };
+
+/* A ScopeLifecycleTracker can record the depths of different scopes and */
+/* the JSVM_Value type variables within each scope.                      */
+class ScopeLifecycleTracker {
+public:
+    uint32_t GetCurrentScopeDepth() const
+    {
+        return currentScopeDepth;
+    }
+
+    void IncHandleScopeDepth()
+    {
+        currentScopeDepth++;
+    }
+
+    void DecHandleScopeDepth()
+    {
+        currentScopeDepth--;
+    }
+
+    void ReleaseJSVMVals()
+    {
+        if (scopeDepthToVal.find(currentScopeDepth) != scopeDepthToVal.end()) {
+            for (auto item : scopeDepthToVal[currentScopeDepth]) {
+                valToScopeDepth.erase(item);
+            }
+        }
+
+        if (currentScopeDepth > 0) {
+            scopeDepthToVal.erase(currentScopeDepth);
+        }
+    }
+
+    void AddJSVMVal(JSVM_Value val)
+    {
+        valToScopeDepth[val] = currentScopeDepth;
+        scopeDepthToVal[currentScopeDepth].push_back(val);
+    }
+
+    bool CheckJSVMVal(JSVM_Value val)
+    {
+        auto values = scopeDepthToVal[currentScopeDepth];
+        auto it = std::find(values.begin(), values.end(), val);
+        if (it != values.end()) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+private:
+    uint32_t currentScopeDepth = 0;
+    std::unordered_map<JSVM_Value, uint32_t> valToScopeDepth;
+    std::unordered_map<uint32_t, std::vector<JSVM_Value>> scopeDepthToVal;
+};
+
 } // namespace jsvm
 
 #define JSVM_FATAL(message)                                                                      \
