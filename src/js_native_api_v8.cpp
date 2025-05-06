@@ -264,6 +264,7 @@ JSVM_Status NewString(JSVM_Env env, const CCharType* str, size_t length, JSVM_Va
     auto strMaybe = stringMaker(isolate);
     CHECK_MAYBE_EMPTY(env, strMaybe, JSVM_GENERIC_FAILURE);
     *result = v8impl::JsValueFromV8LocalValue(strMaybe.ToLocalChecked());
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
     return ClearLastError(env);
 }
 
@@ -296,6 +297,7 @@ JSVM_Status NewExternalString(JSVM_Env env,
         *copied = false;
     }
 #endif // V8_ENABLE_SANDBOX
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
     return status;
 }
 
@@ -1160,6 +1162,11 @@ JSVM_Status OH_JSVM_CreateEnv(JSVM_VM vm,
     env->contextPersistent.Reset(isolate, context);
     v8impl::SetContextEnv(context, env);
     *result = env;
+    if (UNLIKELY(env->debugFlags)) {
+        if (UNLIKELY(env->debugFlags & (1 << JSVM_SCOPE_CHECK))) {
+            env->CreateScopeTracker();
+        }
+    }
     // The error code is set in constructor function, just return JSVM_OK here.
     return JSVM_OK;
 }
@@ -1215,6 +1222,7 @@ JSVM_Status OH_JSVM_CompileScript(JSVM_Env env,
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, script);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, script);
 
     v8::Local<v8::Value> v8Script = v8impl::V8LocalValueFromJsValue(script);
 
@@ -1303,6 +1311,7 @@ JSVM_Status OH_JSVM_CompileScriptWithOrigin(JSVM_Env env,
     CHECK_ARG(env, script);
     CHECK_ARG(env, result);
     CHECK_NOT_NULL(origin->resourceName);
+    CHECK_SCOPE(env, script);
 
     v8::Local<v8::Value> v8Script = v8impl::V8LocalValueFromJsValue(script);
 
@@ -1435,6 +1444,7 @@ JSVM_Status OH_JSVM_CompileScriptWithOptions(JSVM_Env env,
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, script);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, script);
 
     v8::Local<v8::Context> context = env->context();
     auto* isolate = context->GetIsolate();
@@ -1488,6 +1498,7 @@ JSVM_Status OH_JSVM_RunScript(JSVM_Env env, JSVM_Script script, JSVM_Value* resu
     auto scriptResult = v8script->Run(env->context());
     CHECK_MAYBE_EMPTY(env, scriptResult, JSVM_GENERIC_FAILURE);
     *result = v8impl::JsValueFromV8LocalValue(scriptResult.ToLocalChecked());
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return GET_RETURN_STATUS(env);
 }
@@ -1496,6 +1507,7 @@ JSVM_Status OH_JSVM_JsonParse(JSVM_Env env, JSVM_Value json_string, JSVM_Value* 
 {
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, json_string);
+    CHECK_SCOPE(env, json_string);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(json_string);
     RETURN_STATUS_IF_FALSE(env, val->IsString(), JSVM_STRING_EXPECTED);
@@ -1503,6 +1515,7 @@ JSVM_Status OH_JSVM_JsonParse(JSVM_Env env, JSVM_Value json_string, JSVM_Value* 
     auto maybe = v8::JSON::Parse(env->context(), val.As<v8::String>());
     CHECK_MAYBE_EMPTY(env, maybe, JSVM_GENERIC_FAILURE);
     *result = v8impl::JsValueFromV8LocalValue(maybe.ToLocalChecked());
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return GET_RETURN_STATUS(env);
 }
@@ -1511,12 +1524,14 @@ JSVM_Status OH_JSVM_JsonStringify(JSVM_Env env, JSVM_Value json_object, JSVM_Val
 {
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, json_object);
+    CHECK_SCOPE(env, json_object);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(json_object);
 
     auto maybe = v8::JSON::Stringify(env->context(), val);
     CHECK_MAYBE_EMPTY(env, maybe, JSVM_GENERIC_FAILURE);
     *result = v8impl::JsValueFromV8LocalValue(maybe.ToLocalChecked());
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return GET_RETURN_STATUS(env);
 }
@@ -1764,6 +1779,7 @@ JSVM_Status OH_JSVM_CreateFunction(JSVM_Env env,
     }
 
     *result = v8impl::JsValueFromV8LocalValue(returnValue);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return GET_RETURN_STATUS(env);
 }
@@ -1779,6 +1795,7 @@ JSVM_Status OH_JSVM_CreateFunctionWithScript(JSVM_Env env,
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, script);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, script);
     if (argc > 0) {
         CHECK_ARG(env, argv);
         for (size_t i = 0; i < argc; i++) {
@@ -1808,6 +1825,7 @@ JSVM_Status OH_JSVM_CreateFunctionWithScript(JSVM_Env env,
     }
 
     *result = v8impl::JsValueFromV8LocalValue(func);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return GET_RETURN_STATUS(env);
 }
@@ -1887,6 +1905,7 @@ JSVM_Status OH_JSVM_DefineClass(JSVM_Env env,
 
     v8::Local<v8::Context> context = env->context();
     *result = v8impl::JsValueFromV8LocalValue(scope.Escape(tpl->GetFunction(context).ToLocalChecked()));
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     if (staticPropertyCount > 0) {
         std::vector<JSVM_PropertyDescriptor> staticDescriptors;
@@ -1921,6 +1940,7 @@ JSVM_Status OH_JSVM_GetAllPropertyNames(JSVM_Env env,
 {
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, object);
 
     v8::Local<v8::Context> context = env->context();
     v8::Local<v8::Object> obj;
@@ -1973,6 +1993,7 @@ JSVM_Status OH_JSVM_GetAllPropertyNames(JSVM_Env env,
     CHECK_MAYBE_EMPTY_WITH_PREAMBLE(env, maybeAllPropertynames, JSVM_GENERIC_FAILURE);
 
     *result = v8impl::JsValueFromV8LocalValue(maybeAllPropertynames.ToLocalChecked());
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
     return ClearLastError(env);
 }
 
@@ -1981,6 +2002,9 @@ JSVM_Status OH_JSVM_SetProperty(JSVM_Env env, JSVM_Value object, JSVM_Value key,
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, key);
     CHECK_ARG(env, value);
+    CHECK_SCOPE(env, object);
+    CHECK_SCOPE(env, key);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Context> context = env->context();
     v8::Local<v8::Object> obj;
@@ -2000,6 +2024,8 @@ JSVM_Status OH_JSVM_HasProperty(JSVM_Env env, JSVM_Value object, JSVM_Value key,
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, result);
     CHECK_ARG(env, key);
+    CHECK_SCOPE(env, object);
+    CHECK_SCOPE(env, key);
 
     v8::Local<v8::Context> context = env->context();
     v8::Local<v8::Object> obj;
@@ -2019,7 +2045,9 @@ JSVM_Status OH_JSVM_GetProperty(JSVM_Env env, JSVM_Value object, JSVM_Value key,
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, key);
     CHECK_ARG(env, result);
-
+    CHECK_SCOPE(env, object);
+    CHECK_SCOPE(env, key);
+    
     v8::Local<v8::Context> context = env->context();
     v8::Local<v8::Value> k = v8impl::V8LocalValueFromJsValue(key);
     v8::Local<v8::Object> obj;
@@ -2031,6 +2059,7 @@ JSVM_Status OH_JSVM_GetProperty(JSVM_Env env, JSVM_Value object, JSVM_Value key,
 
     v8::Local<v8::Value> val = getMaybe.ToLocalChecked();
     *result = v8impl::JsValueFromV8LocalValue(val);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
     return GET_RETURN_STATUS(env);
 }
 
@@ -2038,6 +2067,8 @@ JSVM_Status OH_JSVM_DeleteProperty(JSVM_Env env, JSVM_Value object, JSVM_Value k
 {
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, key);
+    CHECK_SCOPE(env, object);
+    CHECK_SCOPE(env, key);
 
     v8::Local<v8::Context> context = env->context();
     v8::Local<v8::Value> k = v8impl::V8LocalValueFromJsValue(key);
@@ -2058,6 +2089,8 @@ JSVM_Status OH_JSVM_HasOwnProperty(JSVM_Env env, JSVM_Value object, JSVM_Value k
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, key);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, object);
+    CHECK_SCOPE(env, key);
 
     v8::Local<v8::Context> context = env->context();
     v8::Local<v8::Object> obj;
@@ -2076,6 +2109,8 @@ JSVM_Status OH_JSVM_SetNamedProperty(JSVM_Env env, JSVM_Value object, const char
 {
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, value);
+    CHECK_SCOPE(env, object);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Context> context = env->context();
     v8::Local<v8::Object> obj;
@@ -2096,6 +2131,7 @@ JSVM_Status OH_JSVM_HasNamedProperty(JSVM_Env env, JSVM_Value object, const char
 {
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, object);
 
     v8::Local<v8::Context> context = env->context();
     v8::Local<v8::Object> obj;
@@ -2116,6 +2152,7 @@ JSVM_Status OH_JSVM_GetNamedProperty(JSVM_Env env, JSVM_Value object, const char
 {
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, object);
 
     v8::Local<v8::Context> context = env->context();
 
@@ -2131,6 +2168,7 @@ JSVM_Status OH_JSVM_GetNamedProperty(JSVM_Env env, JSVM_Value object, const char
 
     v8::Local<v8::Value> val = getMaybe.ToLocalChecked();
     *result = v8impl::JsValueFromV8LocalValue(val);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
     return GET_RETURN_STATUS(env);
 }
 
@@ -2138,6 +2176,8 @@ JSVM_Status OH_JSVM_SetElement(JSVM_Env env, JSVM_Value object, uint32_t index, 
 {
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, value);
+    CHECK_SCOPE(env, object);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Context> context = env->context();
     v8::Local<v8::Object> obj;
@@ -2155,6 +2195,7 @@ JSVM_Status OH_JSVM_HasElement(JSVM_Env env, JSVM_Value object, uint32_t index, 
 {
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, object);
 
     v8::Local<v8::Context> context = env->context();
     v8::Local<v8::Object> obj;
@@ -2172,6 +2213,7 @@ JSVM_Status OH_JSVM_GetElement(JSVM_Env env, JSVM_Value object, uint32_t index, 
 {
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, object);
 
     v8::Local<v8::Context> context = env->context();
     v8::Local<v8::Object> obj;
@@ -2182,12 +2224,14 @@ JSVM_Status OH_JSVM_GetElement(JSVM_Env env, JSVM_Value object, uint32_t index, 
     CHECK_MAYBE_EMPTY(env, getMaybe, JSVM_GENERIC_FAILURE);
 
     *result = v8impl::JsValueFromV8LocalValue(getMaybe.ToLocalChecked());
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
     return GET_RETURN_STATUS(env);
 }
 
 JSVM_Status OH_JSVM_DeleteElement(JSVM_Env env, JSVM_Value object, uint32_t index, bool* result)
 {
     JSVM_PREAMBLE(env);
+    CHECK_SCOPE(env, object);
 
     v8::Local<v8::Context> context = env->context();
     v8::Local<v8::Object> obj;
@@ -2208,6 +2252,7 @@ JSVM_Status OH_JSVM_DefineProperties(JSVM_Env env,
                                      const JSVM_PropertyDescriptor* properties)
 {
     JSVM_PREAMBLE(env);
+    CHECK_SCOPE(env, object);
     if (propertyCount > 0) {
         CHECK_ARG(env, properties);
     }
@@ -2283,6 +2328,7 @@ JSVM_Status OH_JSVM_DefineProperties(JSVM_Env env,
 JSVM_Status OH_JSVM_ObjectFreeze(JSVM_Env env, JSVM_Value object)
 {
     JSVM_PREAMBLE(env);
+    CHECK_SCOPE(env, object);
 
     v8::Local<v8::Context> context = env->context();
     v8::Local<v8::Object> obj;
@@ -2299,6 +2345,7 @@ JSVM_Status OH_JSVM_ObjectFreeze(JSVM_Env env, JSVM_Value object)
 JSVM_Status OH_JSVM_ObjectSeal(JSVM_Env env, JSVM_Value object)
 {
     JSVM_PREAMBLE(env);
+    CHECK_SCOPE(env, object);
 
     v8::Local<v8::Context> context = env->context();
     v8::Local<v8::Object> obj;
@@ -2317,6 +2364,7 @@ JSVM_Status OH_JSVM_IsArray(JSVM_Env env, JSVM_Value value, bool* result)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
 
@@ -2329,6 +2377,7 @@ JSVM_Status OH_JSVM_IsRegExp(JSVM_Env env, JSVM_Value value, bool* result)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
 
@@ -2341,6 +2390,7 @@ JSVM_Status OH_JSVM_GetArrayLength(JSVM_Env env, JSVM_Value value, uint32_t* res
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     RETURN_STATUS_IF_FALSE(env, val->IsArray(), JSVM_ARRAY_EXPECTED);
@@ -2357,6 +2407,8 @@ JSVM_Status OH_JSVM_StrictEquals(JSVM_Env env, JSVM_Value lhs, JSVM_Value rhs, b
     CHECK_ARG(env, lhs);
     CHECK_ARG(env, rhs);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, lhs);
+    CHECK_SCOPE(env, rhs);
 
     v8::Local<v8::Value> a = v8impl::V8LocalValueFromJsValue(lhs);
     v8::Local<v8::Value> b = v8impl::V8LocalValueFromJsValue(rhs);
@@ -2371,6 +2423,8 @@ JSVM_Status OH_JSVM_Equals(JSVM_Env env, JSVM_Value lhs, JSVM_Value rhs, bool* r
     CHECK_ARG(env, lhs);
     CHECK_ARG(env, rhs);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, lhs);
+    CHECK_SCOPE(env, rhs);
 
     v8::Local<v8::Value> a = v8impl::V8LocalValueFromJsValue(lhs);
     v8::Local<v8::Value> b = v8impl::V8LocalValueFromJsValue(rhs);
@@ -2384,6 +2438,7 @@ JSVM_Status OH_JSVM_GetPrototype(JSVM_Env env, JSVM_Value object, JSVM_Value* re
 {
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, object);
 
     v8::Local<v8::Context> context = env->context();
 
@@ -2392,6 +2447,7 @@ JSVM_Status OH_JSVM_GetPrototype(JSVM_Env env, JSVM_Value object, JSVM_Value* re
 
     v8::Local<v8::Value> val = obj->GetPrototype();
     *result = v8impl::JsValueFromV8LocalValue(val);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
     return GET_RETURN_STATUS(env);
 }
 
@@ -2401,6 +2457,8 @@ JSVM_Status OH_JSVM_CreateObject(JSVM_Env env, JSVM_Value* result)
     CHECK_ARG(env, result);
 
     *result = v8impl::JsValueFromV8LocalValue(v8::Object::New(env->isolate));
+
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -2412,6 +2470,8 @@ JSVM_Status OH_JSVM_CreateArray(JSVM_Env env, JSVM_Value* result)
 
     *result = v8impl::JsValueFromV8LocalValue(v8::Array::New(env->isolate));
 
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
+
     return ClearLastError(env);
 }
 
@@ -2421,6 +2481,8 @@ JSVM_Status OH_JSVM_CreateArrayWithLength(JSVM_Env env, size_t length, JSVM_Valu
     CHECK_ARG(env, result);
 
     *result = v8impl::JsValueFromV8LocalValue(v8::Array::New(env->isolate, length));
+
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -2455,6 +2517,8 @@ JSVM_Status OH_JSVM_CreateDouble(JSVM_Env env, double value, JSVM_Value* result)
 
     *result = v8impl::JsValueFromV8LocalValue(v8::Number::New(env->isolate, value));
 
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
+
     return ClearLastError(env);
 }
 
@@ -2464,6 +2528,8 @@ JSVM_Status OH_JSVM_CreateInt32(JSVM_Env env, int32_t value, JSVM_Value* result)
     CHECK_ARG(env, result);
 
     *result = v8impl::JsValueFromV8LocalValue(v8::Integer::New(env->isolate, value));
+
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -2475,6 +2541,8 @@ JSVM_Status OH_JSVM_CreateUint32(JSVM_Env env, uint32_t value, JSVM_Value* resul
 
     *result = v8impl::JsValueFromV8LocalValue(v8::Integer::NewFromUnsigned(env->isolate, value));
 
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
+
     return ClearLastError(env);
 }
 
@@ -2484,6 +2552,8 @@ JSVM_Status OH_JSVM_CreateInt64(JSVM_Env env, int64_t value, JSVM_Value* result)
     CHECK_ARG(env, result);
 
     *result = v8impl::JsValueFromV8LocalValue(v8::Number::New(env->isolate, static_cast<double>(value)));
+
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -2495,6 +2565,8 @@ JSVM_Status OH_JSVM_CreateBigintInt64(JSVM_Env env, int64_t value, JSVM_Value* r
 
     *result = v8impl::JsValueFromV8LocalValue(v8::BigInt::New(env->isolate, value));
 
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
+
     return ClearLastError(env);
 }
 
@@ -2504,6 +2576,8 @@ JSVM_Status OH_JSVM_CreateBigintUint64(JSVM_Env env, uint64_t value, JSVM_Value*
     CHECK_ARG(env, result);
 
     *result = v8impl::JsValueFromV8LocalValue(v8::BigInt::NewFromUnsigned(env->isolate, value));
+
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -2527,6 +2601,7 @@ JSVM_Status OH_JSVM_CreateBigintWords(JSVM_Env env,
     CHECK_MAYBE_EMPTY_WITH_PREAMBLE(env, b, JSVM_GENERIC_FAILURE);
 
     *result = v8impl::JsValueFromV8LocalValue(b.ToLocalChecked());
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
     return ClearLastError(env);
 }
 
@@ -2543,6 +2618,8 @@ JSVM_Status OH_JSVM_GetBoolean(JSVM_Env env, bool value, JSVM_Value* result)
         *result = v8impl::JsValueFromV8LocalValue(v8::False(isolate));
     }
 
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
+
     return ClearLastError(env);
 }
 
@@ -2550,6 +2627,7 @@ JSVM_Status OH_JSVM_CreateSymbol(JSVM_Env env, JSVM_Value description, JSVM_Valu
 {
     CHECK_ENV(env);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, description);
 
     v8::Isolate* isolate = env->isolate;
 
@@ -2561,6 +2639,8 @@ JSVM_Status OH_JSVM_CreateSymbol(JSVM_Env env, JSVM_Value description, JSVM_Valu
 
         *result = v8impl::JsValueFromV8LocalValue(v8::Symbol::New(isolate, desc.As<v8::String>()));
     }
+
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -2575,6 +2655,7 @@ JSVM_Status OH_JSVM_SymbolFor(JSVM_Env env, const char* utf8description, size_t 
     v8::Local<v8::String> descriptionString = v8impl::V8LocalValueFromJsValue(jsDescriptionString).As<v8::String>();
 
     *result = v8impl::JsValueFromV8LocalValue(v8::Symbol::For(env->isolate, descriptionString));
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -2607,6 +2688,8 @@ JSVM_Status OH_JSVM_CreateError(JSVM_Env env, JSVM_Value code, JSVM_Value msg, J
     CHECK_ENV(env);
     CHECK_ARG(env, msg);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, code);
+    CHECK_SCOPE(env, msg);
 
     v8::Local<v8::Value> messageValue = v8impl::V8LocalValueFromJsValue(msg);
     RETURN_STATUS_IF_FALSE(env, messageValue->IsString(), JSVM_STRING_EXPECTED);
@@ -2615,6 +2698,7 @@ JSVM_Status OH_JSVM_CreateError(JSVM_Env env, JSVM_Value code, JSVM_Value msg, J
     STATUS_CALL(SetErrorCode(env, errorObj, code, nullptr));
 
     *result = v8impl::JsValueFromV8LocalValue(errorObj);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -2624,6 +2708,7 @@ JSVM_Status OH_JSVM_CreateTypeError(JSVM_Env env, JSVM_Value code, JSVM_Value ms
     CHECK_ENV(env);
     CHECK_ARG(env, msg);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, code);
 
     v8::Local<v8::Value> messageValue = v8impl::V8LocalValueFromJsValue(msg);
     RETURN_STATUS_IF_FALSE(env, messageValue->IsString(), JSVM_STRING_EXPECTED);
@@ -2632,6 +2717,7 @@ JSVM_Status OH_JSVM_CreateTypeError(JSVM_Env env, JSVM_Value code, JSVM_Value ms
     STATUS_CALL(SetErrorCode(env, errorObj, code, nullptr));
 
     *result = v8impl::JsValueFromV8LocalValue(errorObj);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -2641,6 +2727,8 @@ JSVM_Status OH_JSVM_CreateRangeError(JSVM_Env env, JSVM_Value code, JSVM_Value m
     CHECK_ENV(env);
     CHECK_ARG(env, msg);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, code);
+    CHECK_SCOPE(env, msg);
 
     v8::Local<v8::Value> messageValue = v8impl::V8LocalValueFromJsValue(msg);
     RETURN_STATUS_IF_FALSE(env, messageValue->IsString(), JSVM_STRING_EXPECTED);
@@ -2649,6 +2737,7 @@ JSVM_Status OH_JSVM_CreateRangeError(JSVM_Env env, JSVM_Value code, JSVM_Value m
     STATUS_CALL(SetErrorCode(env, errorObj, code, nullptr));
 
     *result = v8impl::JsValueFromV8LocalValue(errorObj);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -2658,6 +2747,8 @@ JSVM_Status OH_JSVM_CreateSyntaxError(JSVM_Env env, JSVM_Value code, JSVM_Value 
     CHECK_ENV(env);
     CHECK_ARG(env, msg);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, code);
+    CHECK_SCOPE(env, msg);
 
     v8::Local<v8::Value> messageValue = v8impl::V8LocalValueFromJsValue(msg);
     RETURN_STATUS_IF_FALSE(env, messageValue->IsString(), JSVM_STRING_EXPECTED);
@@ -2666,6 +2757,7 @@ JSVM_Status OH_JSVM_CreateSyntaxError(JSVM_Env env, JSVM_Value code, JSVM_Value 
     STATUS_CALL(SetErrorCode(env, errorObj, code, nullptr));
 
     *result = v8impl::JsValueFromV8LocalValue(errorObj);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -2677,6 +2769,7 @@ JSVM_Status OH_JSVM_Typeof(JSVM_Env env, JSVM_Value value, JSVM_ValueType* resul
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> v = v8impl::V8LocalValueFromJsValue(value);
 
@@ -2718,6 +2811,7 @@ JSVM_Status OH_JSVM_GetUndefined(JSVM_Env env, JSVM_Value* result)
     CHECK_ARG(env, result);
 
     *result = v8impl::JsValueFromV8LocalValue(v8::Undefined(env->isolate));
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -2728,6 +2822,7 @@ JSVM_Status OH_JSVM_GetNull(JSVM_Env env, JSVM_Value* result)
     CHECK_ARG(env, result);
 
     *result = v8impl::JsValueFromV8LocalValue(v8::Null(env->isolate));
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -2760,6 +2855,12 @@ JSVM_Status OH_JSVM_GetCbInfo(JSVM_Env env,             // [in] JSVM environment
         *data = info->Data();
     }
 
+    if (argv != nullptr) {
+        for (int i = 0; i <= *argc; i++) {
+            ADD_VAL_TO_SCOPE_CHECK(env, argv[i]);
+        }
+    }
+
     return ClearLastError(env);
 }
 
@@ -2772,6 +2873,7 @@ JSVM_Status OH_JSVM_GetNewTarget(JSVM_Env env, JSVM_CallbackInfo cbinfo, JSVM_Va
     v8impl::CallbackWrapper* info = reinterpret_cast<v8impl::CallbackWrapper*>(cbinfo);
 
     *result = info->GetNewTarget();
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
     return ClearLastError(env);
 }
 
@@ -2784,6 +2886,8 @@ JSVM_Status OH_JSVM_CallFunction(JSVM_Env env,
 {
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, recv);
+    CHECK_SCOPE(env, recv);
+    CHECK_SCOPE(env, func);
     if (argc > 0) {
         CHECK_ARG(env, argv);
     }
@@ -2803,6 +2907,7 @@ JSVM_Status OH_JSVM_CallFunction(JSVM_Env env,
     if (result != nullptr) {
         CHECK_MAYBE_EMPTY(env, maybe, JSVM_GENERIC_FAILURE);
         *result = v8impl::JsValueFromV8LocalValue(maybe.ToLocalChecked());
+        ADD_VAL_TO_SCOPE_CHECK(env, *result);
     }
     return ClearLastError(env);
 }
@@ -2814,6 +2919,8 @@ JSVM_Status OH_JSVM_GetGlobal(JSVM_Env env, JSVM_Value* result)
 
     *result = v8impl::JsValueFromV8LocalValue(env->context()->Global());
 
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
+
     return ClearLastError(env);
 }
 
@@ -2821,6 +2928,7 @@ JSVM_Status OH_JSVM_Throw(JSVM_Env env, JSVM_Value error)
 {
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, error);
+    CHECK_SCOPE(env, error);
 
     v8::Isolate* isolate = env->isolate;
 
@@ -2905,6 +3013,7 @@ JSVM_Status OH_JSVM_IsError(JSVM_Env env, JSVM_Value value, bool* result)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     *result = val->IsNativeError();
@@ -2919,6 +3028,7 @@ JSVM_Status OH_JSVM_GetValueDouble(JSVM_Env env, JSVM_Value value, double* resul
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     RETURN_STATUS_IF_FALSE(env, val->IsNumber(), JSVM_NUMBER_EXPECTED);
@@ -2935,6 +3045,7 @@ JSVM_Status OH_JSVM_GetValueInt32(JSVM_Env env, JSVM_Value value, int32_t* resul
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
 
@@ -2958,6 +3069,7 @@ JSVM_Status OH_JSVM_GetValueUint32(JSVM_Env env, JSVM_Value value, uint32_t* res
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
 
@@ -2981,6 +3093,7 @@ JSVM_Status OH_JSVM_GetValueInt64(JSVM_Env env, JSVM_Value value, int64_t* resul
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
 
@@ -3013,6 +3126,7 @@ JSVM_Status OH_JSVM_GetValueBigintInt64(JSVM_Env env, JSVM_Value value, int64_t*
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_ARG(env, lossless);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
 
@@ -3029,6 +3143,7 @@ JSVM_Status OH_JSVM_GetValueBigintUint64(JSVM_Env env, JSVM_Value value, uint64_
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_ARG(env, lossless);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
 
@@ -3048,6 +3163,7 @@ JSVM_Status OH_JSVM_GetValueBigintWords(JSVM_Env env,
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, wordCount);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
 
@@ -3077,6 +3193,7 @@ JSVM_Status OH_JSVM_GetValueBool(JSVM_Env env, JSVM_Value value, bool* result)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     RETURN_STATUS_IF_FALSE(env, val->IsBoolean(), JSVM_BOOLEAN_EXPECTED);
@@ -3098,6 +3215,7 @@ JSVM_Status OH_JSVM_GetValueStringLatin1(JSVM_Env env, JSVM_Value value, char* b
 {
     CHECK_ENV(env);
     CHECK_ARG(env, value);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     RETURN_STATUS_IF_FALSE(env, val->IsString(), JSVM_STRING_EXPECTED);
@@ -3132,6 +3250,7 @@ JSVM_Status OH_JSVM_GetValueStringUtf8(JSVM_Env env, JSVM_Value value, char* buf
 {
     CHECK_ENV(env);
     CHECK_ARG(env, value);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     RETURN_STATUS_IF_FALSE(env, val->IsString(), JSVM_STRING_EXPECTED);
@@ -3167,6 +3286,7 @@ JSVM_Status OH_JSVM_GetValueStringUtf16(JSVM_Env env, JSVM_Value value, char16_t
 {
     CHECK_ENV(env);
     CHECK_ARG(env, value);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     RETURN_STATUS_IF_FALSE(env, val->IsString(), JSVM_STRING_EXPECTED);
@@ -3195,10 +3315,12 @@ JSVM_Status OH_JSVM_CoerceToBool(JSVM_Env env, JSVM_Value value, JSVM_Value* res
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, value);
 
     v8::Isolate* isolate = env->isolate;
     v8::Local<v8::Boolean> b = v8impl::V8LocalValueFromJsValue(value)->ToBoolean(isolate);
     *result = v8impl::JsValueFromV8LocalValue(b);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
     return GET_RETURN_STATUS(env);
 }
 
@@ -3208,6 +3330,7 @@ JSVM_Status OH_JSVM_CoerceToBool(JSVM_Env env, JSVM_Value value, JSVM_Value* res
         JSVM_PREAMBLE(env);                                                                         \
         CHECK_ARG(env, value);                                                                      \
         CHECK_ARG(env, result);                                                                     \
+        CHECK_SCOPE(env, value);                                                                    \
                                                                                                     \
         v8::Local<v8::Context> context = env->context();                                            \
         v8::Local<v8::MixedCaseName> str;                                                           \
@@ -3215,6 +3338,7 @@ JSVM_Status OH_JSVM_CoerceToBool(JSVM_Env env, JSVM_Value value, JSVM_Value* res
         CHECK_TO_##UpperCaseName(env, context, str, value);                                         \
                                                                                                     \
         *result = v8impl::JsValueFromV8LocalValue(str);                                             \
+        ADD_VAL_TO_SCOPE_CHECK(env, *result);                                                       \
         return GET_RETURN_STATUS(env);                                                              \
     }
 
@@ -3264,12 +3388,15 @@ JSVM_Status OH_JSVM_CreateExternal(JSVM_Env env,
 
     *result = v8impl::JsValueFromV8LocalValue(externalValue);
 
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
+
     return ClearLastError(env);
 }
 
 JSVM_Status OH_JSVM_TypeTagObject(JSVM_Env env, JSVM_Value object, const JSVM_TypeTag* typeTag)
 {
     JSVM_PREAMBLE(env);
+    CHECK_SCOPE(env, object);
     v8::Local<v8::Context> context = env->context();
     v8::Local<v8::Object> obj;
     CHECK_TO_OBJECT_WITH_PREAMBLE(env, context, obj, object);
@@ -3293,6 +3420,7 @@ JSVM_Status OH_JSVM_TypeTagObject(JSVM_Env env, JSVM_Value object, const JSVM_Ty
 JSVM_Status OH_JSVM_CheckObjectTypeTag(JSVM_Env env, JSVM_Value object, const JSVM_TypeTag* typeTag, bool* result)
 {
     JSVM_PREAMBLE(env);
+    CHECK_SCOPE(env, object);
     v8::Local<v8::Context> context = env->context();
     v8::Local<v8::Object> obj;
     CHECK_TO_OBJECT_WITH_PREAMBLE(env, context, obj, object);
@@ -3331,6 +3459,7 @@ JSVM_Status OH_JSVM_GetValueExternal(JSVM_Env env, JSVM_Value value, void** resu
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     RETURN_STATUS_IF_FALSE(env, val->IsExternal(), JSVM_INVALID_ARG);
@@ -3349,6 +3478,7 @@ JSVM_Status OH_JSVM_CreateReference(JSVM_Env env, JSVM_Value value, uint32_t ini
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> v8Value = v8impl::V8LocalValueFromJsValue(value);
     v8impl::UserReference* reference = v8impl::UserReference::New(env, v8Value, initialRefcount);
@@ -3432,6 +3562,7 @@ JSVM_Status OH_JSVM_GetReferenceValue(JSVM_Env env, JSVM_Ref ref, JSVM_Value* re
 
     v8impl::UserReference* reference = reinterpret_cast<v8impl::UserReference*>(ref);
     *result = v8impl::JsValueFromV8LocalValue(reference->Get());
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -3445,6 +3576,13 @@ JSVM_Status OH_JSVM_OpenHandleScope(JSVM_Env env, JSVM_HandleScope* result)
 
     *result = v8impl::JsHandleScopeFromV8HandleScope(new v8impl::HandleScopeWrapper(env->isolate));
     env->openHandleScopes++;
+
+    if (UNLIKELY(env->debugFlags)) {
+        if (UNLIKELY(env->debugFlags & (1 << JSVM_SCOPE_CHECK))) {
+            env->GetScopeTracker()->IncHandleScopeDepth();
+        }
+    }
+
     return ClearLastError(env);
 }
 
@@ -3461,6 +3599,14 @@ JSVM_Status OH_JSVM_CloseHandleScope(JSVM_Env env, JSVM_HandleScope scope)
     env->ReleaseJsvmData();
     env->openHandleScopes--;
     delete v8impl::V8HandleScopeFromJsHandleScope(scope);
+
+    if (UNLIKELY(env->debugFlags)) {
+        if (UNLIKELY(env->debugFlags & (1 << JSVM_SCOPE_CHECK))) {
+            env->GetScopeTracker()->ReleaseJSVMVals();
+            env->GetScopeTracker()->DecHandleScopeDepth();
+        }
+    }
+
     return ClearLastError(env);
 }
 
@@ -3492,6 +3638,17 @@ JSVM_Status OH_JSVM_CloseEscapableHandleScope(JSVM_Env env, JSVM_EscapableHandle
     return ClearLastError(env);
 }
 
+JSVM_Status OH_JSVM_SetDebugOption(JSVM_Env env, JSVM_DebugOption debugOption, bool isEnabled)
+{
+    CHECK_ENV(env);
+    if (isEnabled) {
+        env->debugFlags |= (1 << debugOption);
+    } else {
+        env->debugFlags &= ~(1 << debugOption);
+    }
+    return JSVM_OK;
+}
+
 JSVM_Status OH_JSVM_EscapeHandle(JSVM_Env env, JSVM_EscapableHandleScope scope, JSVM_Value escapee, JSVM_Value* result)
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw
@@ -3500,12 +3657,15 @@ JSVM_Status OH_JSVM_EscapeHandle(JSVM_Env env, JSVM_EscapableHandleScope scope, 
     CHECK_ARG(env, scope);
     CHECK_ARG(env, escapee);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, escapee);
 
     v8impl::EscapableHandleScopeWrapper* s = v8impl::V8EscapableHandleScopeFromJsEscapableHandleScope(scope);
     if (!s->IsEscapeCalled()) {
         *result = v8impl::JsValueFromV8LocalValue(s->Escape(v8impl::V8LocalValueFromJsValue(escapee)));
+        ADD_VAL_TO_SCOPE_CHECK(env, *result);
         return ClearLastError(env);
     }
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
     return SetLastError(env, JSVM_ESCAPE_CALLED_TWICE);
 }
 
@@ -3521,6 +3681,7 @@ JSVM_Status OH_JSVM_NewInstance(JSVM_Env env,
         CHECK_ARG(env, argv);
     }
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, constructor);
 
     v8::Local<v8::Context> context = env->context();
 
@@ -3532,6 +3693,7 @@ JSVM_Status OH_JSVM_NewInstance(JSVM_Env env,
     CHECK_MAYBE_EMPTY(env, maybe, JSVM_PENDING_EXCEPTION);
 
     *result = v8impl::JsValueFromV8LocalValue(maybe.ToLocalChecked());
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
     return GET_RETURN_STATUS(env);
 }
 
@@ -3540,6 +3702,8 @@ JSVM_Status OH_JSVM_Instanceof(JSVM_Env env, JSVM_Value object, JSVM_Value const
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, object);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, object);
+    CHECK_SCOPE(env, constructor);
 
     *result = false;
 
@@ -3586,8 +3750,11 @@ JSVM_Status OH_JSVM_GetAndClearLastException(JSVM_Env env, JSVM_Value* result)
         return OH_JSVM_GetUndefined(env, result);
     } else {
         *result = v8impl::JsValueFromV8LocalValue(v8::Local<v8::Value>::New(env->isolate, env->lastException));
+        ADD_VAL_TO_SCOPE_CHECK(env, *result);
         env->lastException.Reset();
     }
+
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -3597,6 +3764,7 @@ JSVM_Status OH_JSVM_IsArraybuffer(JSVM_Env env, JSVM_Value value, bool* result)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     *result = val->IsArrayBuffer();
@@ -3619,6 +3787,7 @@ JSVM_Status OH_JSVM_CreateArraybuffer(JSVM_Env env, size_t byteLength, void** da
     }
 
     *result = v8impl::JsValueFromV8LocalValue(buffer);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
     return GET_RETURN_STATUS(env);
 }
 
@@ -3663,6 +3832,7 @@ JSVM_Status OH_JSVM_CreateArrayBufferFromBackingStoreData(JSVM_Env env,
         v8::ArrayBuffer::NewBackingStore(dataPtr, arrayBufferSize, v8::BackingStore::EmptyDeleter, nullptr);
     v8::Local<v8::ArrayBuffer> arrayBuffer = v8::ArrayBuffer::New(env->isolate, std::move(backingStore));
     *result = v8impl::JsValueFromV8LocalValue(arrayBuffer);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
     return ClearLastError(env);
 }
 
@@ -3670,6 +3840,7 @@ JSVM_Status OH_JSVM_GetArraybufferInfo(JSVM_Env env, JSVM_Value arraybuffer, voi
 {
     CHECK_ENV(env);
     CHECK_ARG(env, arraybuffer);
+    CHECK_SCOPE(env, arraybuffer);
 
     v8::Local<v8::Value> value = v8impl::V8LocalValueFromJsValue(arraybuffer);
     RETURN_STATUS_IF_FALSE(env, value->IsArrayBuffer(), JSVM_INVALID_ARG);
@@ -3692,6 +3863,7 @@ JSVM_Status OH_JSVM_IsTypedarray(JSVM_Env env, JSVM_Value value, bool* result)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     *result = val->IsTypedArray();
@@ -3709,6 +3881,7 @@ JSVM_Status OH_JSVM_CreateTypedarray(JSVM_Env env,
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, arraybuffer);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, arraybuffer);
 
     v8::Local<v8::Value> value = v8impl::V8LocalValueFromJsValue(arraybuffer);
     RETURN_STATUS_IF_FALSE(env, value->IsArrayBuffer(), JSVM_INVALID_ARG);
@@ -3755,6 +3928,7 @@ JSVM_Status OH_JSVM_CreateTypedarray(JSVM_Env env,
     }
 
     *result = v8impl::JsValueFromV8LocalValue(typedArray);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
     return GET_RETURN_STATUS(env);
 }
 
@@ -3768,6 +3942,7 @@ JSVM_Status OH_JSVM_GetTypedarrayInfo(JSVM_Env env,
 {
     CHECK_ENV(env);
     CHECK_ARG(env, typedarray);
+    CHECK_SCOPE(env, typedarray);
 
     v8::Local<v8::Value> value = v8impl::V8LocalValueFromJsValue(typedarray);
     RETURN_STATUS_IF_FALSE(env, value->IsTypedArray(), JSVM_INVALID_ARG);
@@ -3817,6 +3992,7 @@ JSVM_Status OH_JSVM_GetTypedarrayInfo(JSVM_Env env,
 
     if (arraybuffer != nullptr) {
         *arraybuffer = v8impl::JsValueFromV8LocalValue(buffer);
+        ADD_VAL_TO_SCOPE_CHECK(env, *arraybuffer);
     }
 
     if (byteOffset != nullptr) {
@@ -3835,6 +4011,7 @@ JSVM_Status OH_JSVM_CreateDataview(JSVM_Env env,
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, arraybuffer);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, arraybuffer);
 
     v8::Local<v8::Value> value = v8impl::V8LocalValueFromJsValue(arraybuffer);
     RETURN_STATUS_IF_FALSE(env, value->IsArrayBuffer(), JSVM_INVALID_ARG);
@@ -3850,6 +4027,7 @@ JSVM_Status OH_JSVM_CreateDataview(JSVM_Env env,
     v8::Local<v8::DataView> DataView = v8::DataView::New(buffer, byteOffset, byteLength);
 
     *result = v8impl::JsValueFromV8LocalValue(DataView);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
     return GET_RETURN_STATUS(env);
 }
 
@@ -3858,6 +4036,7 @@ JSVM_Status OH_JSVM_IsDataview(JSVM_Env env, JSVM_Value value, bool* result)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     *result = val->IsDataView();
@@ -3874,6 +4053,7 @@ JSVM_Status OH_JSVM_GetDataviewInfo(JSVM_Env env,
 {
     CHECK_ENV(env);
     CHECK_ARG(env, dataview);
+    CHECK_SCOPE(env, dataview);
 
     v8::Local<v8::Value> value = v8impl::V8LocalValueFromJsValue(dataview);
     RETURN_STATUS_IF_FALSE(env, value->IsDataView(), JSVM_INVALID_ARG);
@@ -3903,6 +4083,8 @@ JSVM_Status OH_JSVM_GetDataviewInfo(JSVM_Env env,
         *byteOffset = array->ByteOffset();
     }
 
+    ADD_VAL_TO_SCOPE_CHECK(env, *arraybuffer);
+
     return ClearLastError(env);
 }
 
@@ -3929,6 +4111,7 @@ JSVM_Status OH_JSVM_CreatePromise(JSVM_Env env, JSVM_Deferred* deferred, JSVM_Va
 
     *deferred = v8impl::JsDeferredFromPersistent(v8Deferred);
     *promise = v8impl::JsValueFromV8LocalValue(resolver->GetPromise());
+    ADD_VAL_TO_SCOPE_CHECK(env, *promise);
     return GET_RETURN_STATUS(env);
 }
 
@@ -3936,6 +4119,7 @@ JSVM_Status OH_JSVM_ResolveDeferred(JSVM_Env env, JSVM_Deferred deferred, JSVM_V
 {
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, resolution);
+    CHECK_SCOPE(env, resolution);
 
     auto success = v8impl::ConcludeDeferred<true>(env, deferred, resolution);
 
@@ -3947,6 +4131,7 @@ JSVM_Status OH_JSVM_RejectDeferred(JSVM_Env env, JSVM_Deferred deferred, JSVM_Va
 {
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, resolution);
+    CHECK_SCOPE(env, resolution);
 
     auto success = v8impl::ConcludeDeferred<false>(env, deferred, resolution);
 
@@ -3959,6 +4144,7 @@ JSVM_Status OH_JSVM_IsPromise(JSVM_Env env, JSVM_Value value, bool* isPromise)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isPromise);
+    CHECK_SCOPE(env, value);
 
     *isPromise = v8impl::V8LocalValueFromJsValue(value)->IsPromise();
 
@@ -3974,6 +4160,7 @@ JSVM_Status OH_JSVM_CreateDate(JSVM_Env env, double time, JSVM_Value* result)
     CHECK_MAYBE_EMPTY(env, maybeDate, JSVM_GENERIC_FAILURE);
 
     *result = v8impl::JsValueFromV8LocalValue(maybeDate.ToLocalChecked());
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return GET_RETURN_STATUS(env);
 }
@@ -3983,6 +4170,7 @@ JSVM_Status OH_JSVM_IsDate(JSVM_Env env, JSVM_Value value, bool* isDate)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isDate);
+    CHECK_SCOPE(env, value);
 
     *isDate = v8impl::V8LocalValueFromJsValue(value)->IsDate();
 
@@ -3994,6 +4182,7 @@ JSVM_Status OH_JSVM_GetDateValue(JSVM_Env env, JSVM_Value value, double* result)
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     RETURN_STATUS_IF_FALSE(env, val->IsDate(), JSVM_DATE_EXPECTED);
@@ -4016,6 +4205,7 @@ JSVM_Status OH_JSVM_AddFinalizer(JSVM_Env env,
     CHECK_ENV(env);
     CHECK_ARG(env, jsObject);
     CHECK_ARG(env, finalizeCb);
+    CHECK_SCOPE(env, jsObject);
 
     v8::Local<v8::Value> v8Value = v8impl::V8LocalValueFromJsValue(jsObject);
     RETURN_STATUS_IF_FALSE(env, v8Value->IsObject(), JSVM_INVALID_ARG);
@@ -4071,6 +4261,7 @@ JSVM_Status OH_JSVM_DetachArraybuffer(JSVM_Env env, JSVM_Value arraybuffer)
 {
     CHECK_ENV(env);
     CHECK_ARG(env, arraybuffer);
+    CHECK_SCOPE(env, arraybuffer);
 
     v8::Local<v8::Value> value = v8impl::V8LocalValueFromJsValue(arraybuffer);
     RETURN_STATUS_IF_FALSE(env, value->IsArrayBuffer() || value->IsSharedArrayBuffer(), JSVM_ARRAYBUFFER_EXPECTED);
@@ -4088,6 +4279,7 @@ JSVM_Status OH_JSVM_IsDetachedArraybuffer(JSVM_Env env, JSVM_Value arraybuffer, 
     CHECK_ENV(env);
     CHECK_ARG(env, arraybuffer);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, arraybuffer);
 
     v8::Local<v8::Value> value = v8impl::V8LocalValueFromJsValue(arraybuffer);
 
@@ -4220,6 +4412,7 @@ JSVM_Status OH_JSVM_DefineClassWithPropertyHandler(JSVM_Env env,
 
     v8::Local<v8::Context> context = env->context();
     *result = v8impl::JsValueFromV8LocalValue(scope.Escape(tpl->GetFunction(context).ToLocalChecked()));
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     v8impl::RuntimeReference::New(env, v8impl::V8LocalValueFromJsValue(*result), v8impl::CfgFinalizedCallback,
                                   propertyHandleCfg, nullptr);
@@ -4281,6 +4474,7 @@ JSVM_Status OH_JSVM_IsCallable(JSVM_Env env, JSVM_Value value, bool* isCallable)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isCallable);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
 
@@ -4295,6 +4489,7 @@ JSVM_Status OH_JSVM_IsUndefined(JSVM_Env env, JSVM_Value value, bool* isUndefine
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isUndefined);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     *isUndefined = val->IsUndefined();
@@ -4309,6 +4504,7 @@ JSVM_Status OH_JSVM_IsNull(JSVM_Env env, JSVM_Value value, bool* isNull)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isNull);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     *isNull = val->IsNull();
@@ -4323,6 +4519,7 @@ JSVM_Status OH_JSVM_IsNullOrUndefined(JSVM_Env env, JSVM_Value value, bool* isNu
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isNullOrUndefined);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     *isNullOrUndefined = val->IsNullOrUndefined();
@@ -4337,6 +4534,7 @@ JSVM_Status OH_JSVM_IsBoolean(JSVM_Env env, JSVM_Value value, bool* isBoolean)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isBoolean);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     *isBoolean = val->IsBoolean();
@@ -4351,6 +4549,7 @@ JSVM_Status OH_JSVM_IsNumber(JSVM_Env env, JSVM_Value value, bool* isNumber)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isNumber);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     *isNumber = val->IsNumber();
@@ -4365,6 +4564,7 @@ JSVM_Status OH_JSVM_IsString(JSVM_Env env, JSVM_Value value, bool* isString)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isString);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     *isString = val->IsString();
@@ -4379,6 +4579,7 @@ JSVM_Status OH_JSVM_IsSymbol(JSVM_Env env, JSVM_Value value, bool* isSymbol)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isSymbol);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     *isSymbol = val->IsSymbol();
@@ -4393,6 +4594,7 @@ JSVM_Status OH_JSVM_IsFunction(JSVM_Env env, JSVM_Value value, bool* isFunction)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isFunction);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     *isFunction = val->IsFunction();
@@ -4407,6 +4609,7 @@ JSVM_Status OH_JSVM_IsObject(JSVM_Env env, JSVM_Value value, bool* isObject)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isObject);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     *isObject = val->IsObject();
@@ -4421,6 +4624,7 @@ JSVM_Status OH_JSVM_IsBigInt(JSVM_Env env, JSVM_Value value, bool* isBigInt)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isBigInt);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     *isBigInt = val->IsBigInt();
@@ -4433,6 +4637,7 @@ JSVM_Status OH_JSVM_IsConstructor(JSVM_Env env, JSVM_Value value, bool* isConstr
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isConstructor);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     if (!val->IsObject()) {
@@ -4450,6 +4655,7 @@ JSVM_Status OH_JSVM_CreateRegExp(JSVM_Env env, JSVM_Value value, JSVM_RegExpFlag
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> pattern = v8impl::V8LocalValueFromJsValue(value);
     RETURN_STATUS_IF_FALSE(env, pattern->IsString(), JSVM_STRING_EXPECTED);
@@ -4458,6 +4664,7 @@ JSVM_Status OH_JSVM_CreateRegExp(JSVM_Env env, JSVM_Value value, JSVM_RegExpFlag
         v8::RegExp::New(context, pattern.As<v8::String>(), static_cast<v8::RegExp::Flags>(flags));
     CHECK_MAYBE_EMPTY(env, regExp, JSVM_GENERIC_FAILURE);
     *result = v8impl::JsValueFromV8LocalValue(regExp.ToLocalChecked());
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return GET_RETURN_STATUS(env);
 }
@@ -4468,6 +4675,7 @@ JSVM_Status OH_JSVM_CreateMap(JSVM_Env env, JSVM_Value* result)
     CHECK_ARG(env, result);
 
     *result = v8impl::JsValueFromV8LocalValue(v8::Map::New(env->isolate));
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -4477,6 +4685,7 @@ JSVM_Status OH_JSVM_IsMap(JSVM_Env env, JSVM_Value value, bool* isMap)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isMap);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
 
@@ -4529,6 +4738,7 @@ JSVM_Status OH_JSVM_CreateSet(JSVM_Env env, JSVM_Value* result)
     CHECK_ARG(env, result);
 
     *result = v8impl::JsValueFromV8LocalValue(v8::Set::New(env->isolate));
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -4538,6 +4748,7 @@ JSVM_Status OH_JSVM_IsSet(JSVM_Env env, JSVM_Value value, bool* isSet)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isSet);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     *isSet = val->IsSet();
@@ -4549,6 +4760,7 @@ JSVM_Status OH_JSVM_ObjectGetPrototypeOf(JSVM_Env env, JSVM_Value object, JSVM_V
 {
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, object);
 
     v8::Local<v8::Context> context = env->context();
 
@@ -4557,6 +4769,7 @@ JSVM_Status OH_JSVM_ObjectGetPrototypeOf(JSVM_Env env, JSVM_Value object, JSVM_V
 
     v8::Local<v8::Value> val = obj->GetPrototypeV2();
     *result = v8impl::JsValueFromV8LocalValue(val);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
     return GET_RETURN_STATUS(env);
 }
 
@@ -4564,6 +4777,7 @@ JSVM_Status OH_JSVM_ObjectSetPrototypeOf(JSVM_Env env, JSVM_Value object, JSVM_V
 {
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, prototype);
+    CHECK_SCOPE(env, object);
 
     v8::Local<v8::Context> context = env->context();
 
@@ -4607,6 +4821,7 @@ JSVM_Status OH_JSVM_CompileWasmModule(JSVM_Env env,
     RETURN_IF_EXCEPTION_HAS_CAUGHT(env);
     CHECK_MAYBE_EMPTY(env, maybeModule, JSVM_GENERIC_FAILURE);
     *wasmModule = v8impl::JsValueFromV8LocalValue(maybeModule.ToLocalChecked());
+    ADD_VAL_TO_SCOPE_CHECK(env, *wasmModule);
     return ClearLastError(env);
 }
 
@@ -4619,7 +4834,7 @@ JSVM_Status OH_JSVM_CompileWasmFunction(JSVM_Env env,
     // add jit mode check
     RETURN_STATUS_IF_FALSE(env, platform::ohos::InJitMode(), JSVM_JIT_MODE_EXPECTED);
     CHECK_ARG(env, wasmModule);
-
+    CHECK_SCOPE(env, wasmModule);
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(wasmModule);
     RETURN_STATUS_IF_FALSE(env, val->IsWasmModuleObject(), JSVM_INVALID_ARG);
 
@@ -4648,6 +4863,7 @@ JSVM_Status OH_JSVM_IsWasmModuleObject(JSVM_Env env, JSVM_Value value, bool* res
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     *result = val->IsWasmModuleObject();
@@ -4663,6 +4879,7 @@ JSVM_Status OH_JSVM_CreateWasmCache(JSVM_Env env, JSVM_Value wasmModule, const u
     CHECK_ARG(env, wasmModule);
     CHECK_ARG(env, data);
     CHECK_ARG(env, length);
+    CHECK_SCOPE(env, wasmModule);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(wasmModule);
     RETURN_STATUS_IF_FALSE(env, val->IsWasmModuleObject(), JSVM_INVALID_ARG);
@@ -4704,6 +4921,7 @@ JSVM_Status OH_JSVM_IsBooleanObject(JSVM_Env env, JSVM_Value value, bool* result
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> v = v8impl::V8LocalValueFromJsValue(value);
     *result = v->IsBooleanObject();
@@ -4716,6 +4934,7 @@ JSVM_Status OH_JSVM_IsBigIntObject(JSVM_Env env, JSVM_Value value, bool* result)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> v = v8impl::V8LocalValueFromJsValue(value);
     *result = v->IsBigIntObject();
@@ -4728,6 +4947,7 @@ JSVM_Status OH_JSVM_IsStringObject(JSVM_Env env, JSVM_Value value, bool* result)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> v = v8impl::V8LocalValueFromJsValue(value);
     *result = v->IsStringObject();
@@ -4740,6 +4960,7 @@ JSVM_Status OH_JSVM_IsNumberObject(JSVM_Env env, JSVM_Value value, bool* result)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> v = v8impl::V8LocalValueFromJsValue(value);
     *result = v->IsNumberObject();
@@ -4752,6 +4973,7 @@ JSVM_Status OH_JSVM_IsSymbolObject(JSVM_Env env, JSVM_Value value, bool* result)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> v = v8impl::V8LocalValueFromJsValue(value);
     *result = v->IsSymbolObject();
@@ -4766,6 +4988,7 @@ JSVM_Status OH_JSVM_GetSymbolToStringTag(JSVM_Env env, JSVM_Value* result)
 
     v8::Local<v8::Symbol> symbolToStringTag = v8::Symbol::GetToStringTag(env->isolate);
     *result = v8impl::JsValueFromV8LocalValue(symbolToStringTag);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -4777,6 +5000,7 @@ JSVM_Status OH_JSVM_GetSymbolIterator(JSVM_Env env, JSVM_Value* result)
 
     v8::Local<v8::Symbol> symbolIterator = v8::Symbol::GetIterator(env->isolate);
     *result = v8impl::JsValueFromV8LocalValue(symbolIterator);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -4788,6 +5012,7 @@ JSVM_Status OH_JSVM_GetSymbolAsyncIterator(JSVM_Env env, JSVM_Value* result)
 
     v8::Local<v8::Symbol> symbolAsyncIterator = v8::Symbol::GetAsyncIterator(env->isolate);
     *result = v8impl::JsValueFromV8LocalValue(symbolAsyncIterator);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -4799,6 +5024,7 @@ JSVM_Status OH_JSVM_GetSymbolHasInstance(JSVM_Env env, JSVM_Value* result)
 
     v8::Local<v8::Symbol> symbolHasInstance = v8::Symbol::GetHasInstance(env->isolate);
     *result = v8impl::JsValueFromV8LocalValue(symbolHasInstance);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -4810,6 +5036,7 @@ JSVM_Status OH_JSVM_GetSymbolUnscopables(JSVM_Env env, JSVM_Value* result)
 
     v8::Local<v8::Symbol> symbolUnscopables = v8::Symbol::GetUnscopables(env->isolate);
     *result = v8impl::JsValueFromV8LocalValue(symbolUnscopables);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -4821,6 +5048,7 @@ JSVM_Status OH_JSVM_GetSymbolIsConcatSpreadable(JSVM_Env env, JSVM_Value* result
 
     v8::Local<v8::Symbol> symbolIsConcatSpreadable = v8::Symbol::GetIsConcatSpreadable(env->isolate);
     *result = v8impl::JsValueFromV8LocalValue(symbolIsConcatSpreadable);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -4832,6 +5060,7 @@ JSVM_Status OH_JSVM_GetSymbolMatch(JSVM_Env env, JSVM_Value* result)
 
     v8::Local<v8::Symbol> symbolMatch = v8::Symbol::GetMatch(env->isolate);
     *result = v8impl::JsValueFromV8LocalValue(symbolMatch);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -4843,6 +5072,7 @@ JSVM_Status OH_JSVM_GetSymbolReplace(JSVM_Env env, JSVM_Value* result)
 
     v8::Local<v8::Symbol> symbolReplace = v8::Symbol::GetReplace(env->isolate);
     *result = v8impl::JsValueFromV8LocalValue(symbolReplace);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -4854,6 +5084,7 @@ JSVM_Status OH_JSVM_GetSymbolSearch(JSVM_Env env, JSVM_Value* result)
 
     v8::Local<v8::Symbol> symbolSearch = v8::Symbol::GetSearch(env->isolate);
     *result = v8impl::JsValueFromV8LocalValue(symbolSearch);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -4865,6 +5096,7 @@ JSVM_Status OH_JSVM_GetSymbolSplit(JSVM_Env env, JSVM_Value* result)
 
     v8::Local<v8::Symbol> symbolSplit = v8::Symbol::GetSplit(env->isolate);
     *result = v8impl::JsValueFromV8LocalValue(symbolSplit);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -4876,6 +5108,7 @@ JSVM_Status OH_JSVM_GetSymbolToPrimitive(JSVM_Env env, JSVM_Value* result)
 
     v8::Local<v8::Symbol> symbolToPrimitive = v8::Symbol::GetToPrimitive(env->isolate);
     *result = v8impl::JsValueFromV8LocalValue(symbolToPrimitive);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -4902,6 +5135,7 @@ JSVM_Status OH_JSVM_CreateProxy(JSVM_Env env, JSVM_Value target, JSVM_Value hand
     CHECK_ARG(env, target);
     CHECK_ARG(env, handler);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, target);
 
     // Check target and handler are v8 Object
     auto localTarget = v8impl::V8LocalValueFromJsValue(target);
@@ -4918,6 +5152,7 @@ JSVM_Status OH_JSVM_CreateProxy(JSVM_Env env, JSVM_Value target, JSVM_Value hand
 
     v8::Local<v8::Proxy> proxy = maybeProxy.ToLocalChecked();
     *result = v8impl::JsValueFromV8LocalValue(proxy);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     return ClearLastError(env);
 }
@@ -4927,6 +5162,7 @@ JSVM_Status OH_JSVM_IsProxy(JSVM_Env env, JSVM_Value value, bool* isProxy)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isProxy);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     *isProxy = val->IsProxy();
@@ -4939,12 +5175,14 @@ JSVM_Status OH_JSVM_ProxyGetTarget(JSVM_Env env, JSVM_Value value, JSVM_Value* r
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
 
     RETURN_STATUS_IF_FALSE(env, val->IsProxy(), JSVM_INVALID_TYPE);
 
     *result = v8impl::JsValueFromV8LocalValue(val.As<v8::Proxy>()->GetTarget());
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
     return ClearLastError(env);
 }
 
@@ -4987,6 +5225,7 @@ JSVM_Status OH_JSVM_CreatePrivate(JSVM_Env env, JSVM_Value description, JSVM_Dat
 {
     CHECK_ENV(env);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, description);
 
     v8::Isolate* isolate = env->isolate;
 
@@ -5008,6 +5247,8 @@ JSVM_Status OH_JSVM_SetPrivate(JSVM_Env env, JSVM_Value object, JSVM_Data key, J
     CHECK_ARG(env, object);
     CHECK_ARG(env, key);
     CHECK_ARG(env, value);
+    CHECK_SCOPE(env, object);
+    CHECK_SCOPE(env, value);
 
     auto context = env->context();
     auto obj = v8impl::V8LocalValueFromJsValue(object);
@@ -5028,6 +5269,7 @@ JSVM_Status OH_JSVM_GetPrivate(JSVM_Env env, JSVM_Value object, JSVM_Data key, J
     CHECK_ARG(env, object);
     CHECK_ARG(env, key);
     CHECK_ARG(env, result);
+    CHECK_SCOPE(env, object);
 
     auto context = env->context();
     auto obj = v8impl::V8LocalValueFromJsValue(object);
@@ -5040,6 +5282,7 @@ JSVM_Status OH_JSVM_GetPrivate(JSVM_Env env, JSVM_Value object, JSVM_Data key, J
 
     v8::Local<v8::Value> val = getMaybe.ToLocalChecked();
     *result = v8impl::JsValueFromV8LocalValue(val);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
     return GET_RETURN_STATUS(env);
 }
 
@@ -5048,6 +5291,7 @@ JSVM_Status OH_JSVM_DeletePrivate(JSVM_Env env, JSVM_Value object, JSVM_Data key
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, object);
     CHECK_ARG(env, key);
+    CHECK_SCOPE(env, object);
 
     auto context = env->context();
     auto obj = v8impl::V8LocalValueFromJsValue(object);
@@ -5313,6 +5557,7 @@ static void OnPromiseReject(v8::PromiseRejectMessage rejectMessage)
     auto strValue = v8::String::NewFromUtf8(isolate, "value").ToLocalChecked();
     (void)rejectInfo->Set(context, strValue, rejectMessage.GetValue());
     JSVM_Value jsvmRejectInfo = v8impl::JsValueFromV8LocalValue(rejectInfo);
+    ADD_VAL_TO_SCOPE_CHECK(env, jsvmRejectInfo);
     JSVM_PromiseRejectEvent rejectEvent = JSVM_PROMISE_REJECT_OTHER_REASONS;
     switch (rejectMessage.GetEvent()) {
         case v8::kPromiseRejectWithNoHandler: {
@@ -5554,6 +5799,7 @@ JSVM_Status OH_JSVM_DefineClassWithOptions(JSVM_Env env,
     CHECK_ARG(env, result);
     CHECK_ARG(env, constructor);
     CHECK_ARG(env, constructor->callback);
+    CHECK_SCOPE(env, parentClass);
 
     if (propertyCount > 0) {
         CHECK_ARG(env, properties);
@@ -5625,6 +5871,7 @@ JSVM_Status OH_JSVM_DefineClassWithOptions(JSVM_Env env,
 
     v8::Local<v8::Context> context = env->context();
     *result = v8impl::JsValueFromV8LocalValue(scope.Escape(tpl->GetFunction(context).ToLocalChecked()));
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
 
     if (optionResolver.HasPropertyHandler()) {
         v8impl::RuntimeReference::New(env, v8impl::V8LocalValueFromJsValue(*result), v8impl::CfgFinalizedCallback,
@@ -5657,6 +5904,7 @@ JSVM_Status OH_JSVM_PromiseRegisterHandler(JSVM_Env env,
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, promise);
     RETURN_STATUS_IF_FALSE(env, onFulfilled || onRejected, JSVM_INVALID_ARG);
+    CHECK_SCOPE(env, promise);
 
     v8::Local<v8::Value> value = v8impl::V8LocalValueFromJsValue(promise);
     RETURN_STATUS_IF_FALSE(env, value->IsPromise(), JSVM_INVALID_TYPE);
@@ -5689,6 +5937,7 @@ JSVM_Status OH_JSVM_PromiseRegisterHandler(JSVM_Env env,
     if (result) {
         auto retPromise = maybe.ToLocalChecked();
         *result = v8impl::JsValueFromV8LocalValue(retPromise);
+        ADD_VAL_TO_SCOPE_CHECK(env, *result);
     }
 
     return ClearLastError(env);

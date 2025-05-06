@@ -998,4 +998,14 @@ typedef enum {
     /** Tracing more detailed interface invoking of WASM, such as background compilation and wrappers. */
     JSVM_TRACE_WASM_DETAILED
 } JSVM_TraceCategory;
+
+/**
+ * @brief Debug options.
+ *
+ * @since 20
+ */
+typedef enum {
+    /** Scope check. */
+    JSVM_SCOPE_CHECK,
+} JSVM_DebugOption;
 #endif /* ARK_RUNTIME_JSVM_JSVM_TYPE_H */

@@ -60,6 +60,11 @@ void JSVM_Env__::DeleteMe()
         locker = nullptr;
     }
 
+    if (scopeTracker) {
+        delete scopeTracker;
+        scopeTracker = nullptr;
+    }
+
     delete this;
 }
 
