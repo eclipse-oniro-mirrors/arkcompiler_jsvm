@@ -327,7 +327,7 @@ SocketSession* InspectorSocketServer::Session(int sessionId)
 void InspectorSocketServer::SessionStarted(int sessionId, const std::string& targetId, const std::string& wsKey)
 {
     SocketSession* session = Session(sessionId);
-    CHECK_NULL(session);
+    DCHECK(session != nullptr);
     if (!TargetExists(targetId)) {
         session->Decline();
         return;
@@ -361,7 +361,7 @@ void InspectorSocketServer::SessionTerminated(int sessionId)
 bool InspectorSocketServer::HandleGetRequest(int sessionId, const std::string& hostName, const std::string& path)
 {
     SocketSession* session = Session(sessionId);
-    CHECK_NULL(session);
+    DCHECK(session != nullptr);
     InspectorSocket* socket = session->GetWsSocket();
     if (!inspectPublishUid.http) {
         SendHttpNotFound(socket);
@@ -553,7 +553,7 @@ void SocketSession::Delegate::OnHttpGet(const std::string& host, const std::stri
 {
     if (!server->HandleGetRequest(usessionId, host, path)) {
         SocketSession* session = Session();
-        CHECK_NULL(session);
+        DCHECK(session != nullptr);
         session->GetWsSocket()->CancelHandshake();
     }
 }
