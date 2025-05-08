@@ -5398,6 +5398,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_TraceStart(size_t count,
     }
 
     TraceBuffer* ring_buffer = TraceBuffer::CreateTraceBufferRingBuffer(max_chunks, writer);
+    DCHECK(controller != nullptr);
     controller->Initialize(ring_buffer);
     controller->StartTracing(trace_config);
     return JSVM_OK;
