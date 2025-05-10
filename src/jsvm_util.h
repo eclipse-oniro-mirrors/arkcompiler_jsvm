@@ -47,7 +47,6 @@
 #include "v8-profiler.h"
 #include "v8.h"
 
-
 #ifdef __GNUC__
 #define FORCE_INLINE __attribute__((always_inline))
 #else
@@ -59,6 +58,15 @@ template<typename T, size_t N>
 constexpr size_t ArraySize(const T (&)[N])
 {
     return N;
+}
+
+// Get maximum size for all given types
+template<typename... Types>
+constexpr size_t MaxSize()
+{
+    size_t max = 0;
+    ((max = sizeof(Types) > max ? sizeof(Types) : max), ...);
+    return max;
 }
 } // namespace jsvm
 

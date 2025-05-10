@@ -1199,7 +1199,7 @@ JSVM_Status OH_JSVM_DestroyEnv(JSVM_Env env)
 
 JSVM_Status OH_JSVM_OpenEnvScope(JSVM_Env env, JSVM_EnvScope* result)
 {
-    auto v8scope = new v8::Context::Scope(env->context());
+    auto *v8scope = env->scopeMemoryManager.New<v8::Context::Scope>(env->context());
     *result = reinterpret_cast<JSVM_EnvScope>(v8scope);
     return ClearLastError(env);
 }
@@ -1207,7 +1207,7 @@ JSVM_Status OH_JSVM_OpenEnvScope(JSVM_Env env, JSVM_EnvScope* result)
 JSVM_Status OH_JSVM_CloseEnvScope(JSVM_Env env, JSVM_EnvScope scope)
 {
     auto v8scope = reinterpret_cast<v8::Context::Scope*>(scope);
-    delete v8scope;
+    env->scopeMemoryManager.Delete(v8scope);
     return ClearLastError(env);
 }
 
@@ -3574,7 +3574,9 @@ JSVM_Status OH_JSVM_OpenHandleScope(JSVM_Env env, JSVM_HandleScope* result)
     CHECK_ENV(env);
     CHECK_ARG(env, result);
 
-    *result = v8impl::JsHandleScopeFromV8HandleScope(new v8impl::HandleScopeWrapper(env->isolate));
+    auto* scope = env->scopeMemoryManager.New<v8impl::HandleScopeWrapper>(env->isolate);
+
+    *result = v8impl::JsHandleScopeFromV8HandleScope(scope);
     env->openHandleScopes++;
 
     if (UNLIKELY(env->debugFlags)) {
@@ -3598,7 +3600,8 @@ JSVM_Status OH_JSVM_CloseHandleScope(JSVM_Env env, JSVM_HandleScope scope)
 
     env->ReleaseJsvmData();
     env->openHandleScopes--;
-    delete v8impl::V8HandleScopeFromJsHandleScope(scope);
+
+    env->scopeMemoryManager.Delete(v8impl::V8HandleScopeFromJsHandleScope(scope));
 
     if (UNLIKELY(env->debugFlags)) {
         if (UNLIKELY(env->debugFlags & (1 << JSVM_SCOPE_CHECK))) {
@@ -3617,8 +3620,8 @@ JSVM_Status OH_JSVM_OpenEscapableHandleScope(JSVM_Env env, JSVM_EscapableHandleS
     CHECK_ENV(env);
     CHECK_ARG(env, result);
 
-    *result =
-        v8impl::JsEscapableHandleScopeFromV8EscapableHandleScope(new v8impl::EscapableHandleScopeWrapper(env->isolate));
+    auto* scope = env->scopeMemoryManager.New<v8impl::EscapableHandleScopeWrapper>(env->isolate);
+    *result = v8impl::JsEscapableHandleScopeFromV8EscapableHandleScope(scope);
     env->openHandleScopes++;
     return ClearLastError(env);
 }
@@ -3633,7 +3636,7 @@ JSVM_Status OH_JSVM_CloseEscapableHandleScope(JSVM_Env env, JSVM_EscapableHandle
         return JSVM_HANDLE_SCOPE_MISMATCH;
     }
 
-    delete v8impl::V8EscapableHandleScopeFromJsEscapableHandleScope(scope);
+    env->scopeMemoryManager.Delete(v8impl::V8EscapableHandleScopeFromJsEscapableHandleScope(scope));
     env->openHandleScopes--;
     return ClearLastError(env);
 }

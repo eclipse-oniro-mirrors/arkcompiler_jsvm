@@ -24,6 +24,7 @@
 #include "jsvm_reference.h"
 #include "jsvm_types.h"
 #include "jsvm_util.h"
+#include "memory_manager.h"
 #include "type_conversion.h"
 #include "v8.h"
 
@@ -189,6 +190,10 @@ public:
 
     // Store v8::Locker
     v8::Locker* locker = nullptr;
+
+    using ScopeMemoryManager = MemoryChunkList<
+        jsvm::MaxSize<v8impl::EscapableHandleScopeWrapper, v8impl::HandleScopeWrapper, v8::Context::Scope>()>;
+    ScopeMemoryManager scopeMemoryManager;
 
     int32_t apiVersion;
 
