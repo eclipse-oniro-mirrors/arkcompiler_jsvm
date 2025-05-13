@@ -31,4 +31,5 @@ declare_args() {
   enable_debug = false
   enable_inspector = true
   use_platform_ohos = true
+  support_hwasan = false
 }
