@@ -102,7 +102,7 @@ ohos_prebuilt_shared_library("libjsvm") {
   ]
 
   public_configs = [ ":public_jsvm_config" ]
-  if (is_asan && use_hwasan) {
+  if (is_asan && support_hwasan && use_hwasan) {
     source = "$target_gen_dir/asan/libjsvm.so"
   } else {
     source = "$target_gen_dir/libjsvm.so"
@@ -138,7 +138,8 @@ action("build_libjsvm") {
   configs = []
   script = "build_jsvm.sh"
   sources = []
-  if (is_asan && use_hwasan) {
+  support_and_use_hwasan = support_hwasan && use_hwasan
+  if (is_asan && support_and_use_hwasan) {
     outputs = [ "$target_gen_dir/asan/libjsvm.so" ]
   } else {
     outputs = [ "$target_gen_dir/libjsvm.so" ]
@@ -159,7 +160,7 @@ action("build_libjsvm") {
     "--is_asan",
     "$is_asan",
     "--use_hwasan",
-    "$use_hwasan",
+    "$support_and_use_hwasan",
     "{{include_dirs}}",
     "--cmake_path",
     rebase_path("//prebuilts/cmake/linux-x86/bin/cmake"),
