@@ -15,6 +15,7 @@
 
 #include <chrono>
 #include <csetjmp>
+#include <csignal>
 #include <cstring>
 #include <deque>
 #include <fstream>
@@ -1523,4 +1524,60 @@ HWTEST_F(JSVMTest, test_delete_private_with_non_private, TestSize.Level1)
     JSVMTEST_CALL(OH_JSVM_CreateSymbol(env, jsvm::Str("a"), (JSVM_Value*)&key));
     auto status = OH_JSVM_DeletePrivate(env, obj, key);
     ASSERT_TRUE(status == JSVM_INVALID_ARG);
+}
+
+HWTEST_F(JSVMTest, test_set_debug_option1, TestSize.Level1)
+{
+    JSVM_HandleScope handleScope1, handleScope2, handleScope3;
+    int num = 100;
+    bool boolValue = false;
+    JSVM_Value array1[num], array2[num], array3[num];
+    JSVMTEST_CALL(OH_JSVM_SetDebugOption(env, JSVM_SCOPE_CHECK, true));
+    OH_JSVM_OpenHandleScope(env, &handleScope1);
+    for (int i = 0; i < num; i++) {
+        OH_JSVM_GetBoolean(env, false, &array1[i]);
+        OH_JSVM_IsBoolean(env, array1[i], &boolValue);
+    }
+    OH_JSVM_OpenHandleScope(env, &handleScope2);
+    for (int i = 0; i < num; i++) {
+        OH_JSVM_GetBoolean(env, false, &array2[i]);
+        OH_JSVM_IsBoolean(env, array2[i], &boolValue);
+    }
+    OH_JSVM_OpenHandleScope(env, &handleScope3);
+    for (int i = 0; i < num; i++) {
+        OH_JSVM_GetBoolean(env, false, &array3[i]);
+        OH_JSVM_IsBoolean(env, array3[i], &boolValue);
+    }
+    OH_JSVM_CloseHandleScope(env, handleScope3);
+    OH_JSVM_CloseHandleScope(env, handleScope2);
+    OH_JSVM_CloseHandleScope(env, handleScope1);
+    JSVMTEST_CALL(OH_JSVM_SetDebugOption(env, JSVM_SCOPE_CHECK, false));
+}
+
+static bool g_fatalErrorFinished = false;
+
+void HandleAbort(int sig)
+{
+    g_fatalErrorFinished = true;
+    longjmp(g_buf, 1);
+}
+
+HWTEST_F(JSVMTest, test_set_debug_option2, TestSize.Level1)
+{
+    JSVM_HandleScope handleScope;
+    JSVM_Value result;
+    bool boolValue = false;
+    JSVMTEST_CALL(OH_JSVM_SetDebugOption(env, JSVM_SCOPE_CHECK, true));
+    OH_JSVM_OpenHandleScope(env, &handleScope);
+    OH_JSVM_GetBoolean(env, true, &result);
+    OH_JSVM_CloseHandleScope(env, handleScope);
+    signal(SIGABRT, HandleAbort);
+    static bool fataled = false;
+    setjmp(g_buf);
+    if (!fataled) {
+        fataled = true;
+        OH_JSVM_IsBoolean(env, result, &boolValue);
+    }
+    JSVMTEST_CALL(OH_JSVM_SetDebugOption(env, JSVM_SCOPE_CHECK, false));
+    ASSERT_TRUE(g_fatalErrorFinished);
 }
