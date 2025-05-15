@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.28)
 project(JSVM)
 
 # 设置C++标准
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 # 添加编译选项
@@ -35,7 +35,7 @@ add_compile_definitions(
   -DENABLE_INSPECTOR
   -DHAVE_OPENSSL=1
   -DTARGET_OHOS
-  -DENABLE_HISYSEVENT
+  # -DENABLE_HISYSEVENT
 )
 
 # 添加头文件
@@ -106,6 +106,7 @@ target_link_libraries(jsvm
   libssl_openssl.z.so
   libv8_shared.so
   libhilog.so
+  c++_static
 )
 else()
 target_link_libraries(jsvm
@@ -121,5 +122,6 @@ target_link_libraries(jsvm
   libssl_openssl.z.so
   libv8_shared.so
   libhilog.so
+  c++_static
 )
 endif()
