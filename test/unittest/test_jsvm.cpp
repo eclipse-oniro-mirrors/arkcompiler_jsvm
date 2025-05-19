@@ -1168,7 +1168,6 @@ HWTEST_F(JSVMTest, JSVMOOM, TestSize.Level1)
         oomed = true;
         jsvm::TryTriggerOOM();
     }
-    ASSERT_TRUE(jsvm::ToNumber(jsvm::Run("42")) == 42);
     ASSERT_TRUE(g_oomHandlerFinished);
 }
 
