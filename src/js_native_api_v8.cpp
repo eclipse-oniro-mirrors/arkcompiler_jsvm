@@ -2393,6 +2393,9 @@ JSVM_Status OH_JSVM_GetArrayLength(JSVM_Env env, JSVM_Value value, uint32_t* res
     CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
+    if (!val->IsArray()) {
+        *result = 0;
+    }
     RETURN_STATUS_IF_FALSE(env, val->IsArray(), JSVM_ARRAY_EXPECTED);
 
     v8::Local<v8::Array> arr = val.As<v8::Array>();
