@@ -190,26 +190,36 @@ inline JSVM_Status SetLastError(JSVM_Env env,
 
 #define JSVM_PRIVATE_KEY(isolate, suffix) (v8impl::GetIsolateData(isolate)->suffix##Key.Get(isolate))
 
-#define ADD_VAL_TO_SCOPE_CHECK(env, val)                                             \
-    do {                                                                             \
-        if (UNLIKELY((env)->debugFlags)) {                                           \
-            if (UNLIKELY((env)->debugFlags & (1 << JSVM_SCOPE_CHECK)) && (val)) {    \
-                LOG(Info) << "ADD_VAL_TO_SCOPE_CHECK in function: " << __func__;     \
-                (env)->GetScopeTracker()->AddJSVMVal(val);                           \
-            }                                                                        \
-        }                                                                            \
+#define ADD_VAL_TO_SCOPE_CHECK(env, val)                                          \
+    do {                                                                          \
+        if (UNLIKELY((env)->debugFlags)) {                                        \
+            if (UNLIKELY((env)->debugFlags & (1 << JSVM_SCOPE_CHECK)) && (val)) { \
+                LOG(Info) << "ADD_VAL_TO_SCOPE_CHECK in function: " << __func__;  \
+                (env)->GetScopeTracker()->AddJSVMVal(val);                        \
+            }                                                                     \
+        }                                                                         \
     } while (0)
 
-#define CHECK_SCOPE(env, val)                                                        \
-    do {                                                                             \
-        if (UNLIKELY((env)->debugFlags)) {                                           \
-            if (UNLIKELY((env)->debugFlags & (1 << JSVM_SCOPE_CHECK)) && (val)) {    \
-                LOG(Info) << "CHECK_SCOPE in function: " << __func__;                \
-                if (!(env)->GetScopeTracker()->CheckJSVMVal(val)) {                  \
-                    JSVM_FATAL("Run in wrong HandleScope");                          \
-                }                                                                    \
-            }                                                                        \
-        }                                                                            \
+#define ADD_VAL_TO_ESCAPE_SCOPE_CHECK(env, val)                                   \
+    do {                                                                          \
+        if (UNLIKELY((env)->debugFlags)) {                                        \
+            if (UNLIKELY((env)->debugFlags & (1 << JSVM_SCOPE_CHECK)) && (val)) { \
+                LOG(Info) << "ADD_VAL_TO_SCOPE_CHECK in function: " << __func__;  \
+                (env)->GetScopeTracker()->AddJSVMVal(val, true);                  \
+            }                                                                     \
+        }                                                                         \
+    } while (0)
+
+#define CHECK_SCOPE(env, val)                                                     \
+    do {                                                                          \
+        if (UNLIKELY((env)->debugFlags)) {                                        \
+            if (UNLIKELY((env)->debugFlags & (1 << JSVM_SCOPE_CHECK)) && (val)) { \
+                LOG(Info) << "CHECK_SCOPE in function: " << __func__;             \
+                if (!(env)->GetScopeTracker()->CheckJSVMVal(val)) {               \
+                    JSVM_FATAL("Run in wrong HandleScope");                       \
+                }                                                                 \
+            }                                                                     \
+        }                                                                         \
     } while (0)
 
 #define STATUS_CALL(call)            \

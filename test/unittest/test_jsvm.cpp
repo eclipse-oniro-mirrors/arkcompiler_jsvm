@@ -1532,7 +1532,8 @@ HWTEST_F(JSVMTest, test_set_debug_option1, TestSize.Level1)
     int num = 100;
     bool boolValue = false;
     JSVM_Value array1[num], array2[num], array3[num];
-    JSVMTEST_CALL(OH_JSVM_SetDebugOption(env, JSVM_SCOPE_CHECK, true));
+    auto status1 = OH_JSVM_SetDebugOption(env, JSVM_SCOPE_CHECK, true);
+    ASSERT_TRUE(status1 == JSVM_OK);
     OH_JSVM_OpenHandleScope(env, &handleScope1);
     for (int i = 0; i < num; i++) {
         OH_JSVM_GetBoolean(env, false, &array1[i]);
@@ -1547,11 +1548,13 @@ HWTEST_F(JSVMTest, test_set_debug_option1, TestSize.Level1)
     for (int i = 0; i < num; i++) {
         OH_JSVM_GetBoolean(env, false, &array3[i]);
         OH_JSVM_IsBoolean(env, array3[i], &boolValue);
+        OH_JSVM_IsBoolean(env, array2[i], &boolValue);
     }
     OH_JSVM_CloseHandleScope(env, handleScope3);
     OH_JSVM_CloseHandleScope(env, handleScope2);
     OH_JSVM_CloseHandleScope(env, handleScope1);
-    JSVMTEST_CALL(OH_JSVM_SetDebugOption(env, JSVM_SCOPE_CHECK, false));
+    auto status2 = OH_JSVM_SetDebugOption(env, JSVM_SCOPE_CHECK, false);
+    ASSERT_TRUE(status2 == JSVM_OK);
 }
 
 static bool g_fatalErrorFinished = false;
@@ -1567,7 +1570,8 @@ HWTEST_F(JSVMTest, test_set_debug_option2, TestSize.Level1)
     JSVM_HandleScope handleScope;
     JSVM_Value result;
     bool boolValue = false;
-    JSVMTEST_CALL(OH_JSVM_SetDebugOption(env, JSVM_SCOPE_CHECK, true));
+    auto status1 = OH_JSVM_SetDebugOption(env, JSVM_SCOPE_CHECK, true);
+    ASSERT_TRUE(status1 == JSVM_OK);
     OH_JSVM_OpenHandleScope(env, &handleScope);
     OH_JSVM_GetBoolean(env, true, &result);
     OH_JSVM_CloseHandleScope(env, handleScope);
@@ -1578,6 +1582,26 @@ HWTEST_F(JSVMTest, test_set_debug_option2, TestSize.Level1)
         fataled = true;
         OH_JSVM_IsBoolean(env, result, &boolValue);
     }
-    JSVMTEST_CALL(OH_JSVM_SetDebugOption(env, JSVM_SCOPE_CHECK, false));
+    auto status2 = OH_JSVM_SetDebugOption(env, JSVM_SCOPE_CHECK, false);
+    ASSERT_TRUE(status2 == JSVM_OK);
     ASSERT_TRUE(g_fatalErrorFinished);
+}
+
+HWTEST_F(JSVMTest, test_set_debug_option3, TestSize.Level1)
+{
+    JSVM_HandleScope handleScope;
+    JSVM_Value val, escapeVal;
+    bool boolValue = false;
+    auto status1 = OH_JSVM_SetDebugOption(env, JSVM_SCOPE_CHECK, true);
+    ASSERT_TRUE(status1 == JSVM_OK);
+    OH_JSVM_OpenHandleScope(env, &handleScope);
+    JSVM_EscapableHandleScope scope = nullptr;
+    OH_JSVM_OpenEscapableHandleScope(env, &scope);
+    OH_JSVM_GetBoolean(env, true, &val);
+    OH_JSVM_EscapeHandle(env, scope, val, &escapeVal);
+    OH_JSVM_CloseEscapableHandleScope(env, scope);
+    OH_JSVM_IsBoolean(env, escapeVal, &boolValue);
+    OH_JSVM_CloseHandleScope(env, handleScope);
+    auto status2 = OH_JSVM_SetDebugOption(env, JSVM_SCOPE_CHECK, false);
+    ASSERT_TRUE(status2 == JSVM_OK);
 }
