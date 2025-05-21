@@ -46,7 +46,7 @@ UserReference* UserReference::NewData(JSVM_Env env, v8::Local<v8::Data> value, u
 }
 
 UserReference::UserReference(JSVM_Env env, v8::Local<v8::Data> value, bool isValue, uint32_t initialRefcount)
-    : persistent(env->isolate, value), isValue(isValue), env(env), refcount(initialRefcount),
+    : persistent(env->isolate, value), env(env), refcount(initialRefcount), isValue(isValue),
       canBeWeak(isValue && CanBeHeldWeakly(value.As<v8::Value>()))
 {
     if (refcount == 0) {
