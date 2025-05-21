@@ -208,8 +208,6 @@ static std::vector<intptr_t> externalReferenceRegistry;
 
 static std::unordered_map<std::string, std::string> sourceMapUrlMap;
 
-static std::unique_ptr<v8::ArrayBuffer::Allocator> defaultArrayBufferAllocator;
-
 static std::unique_ptr<std::stringstream> g_trace_stream;
 
 constexpr uint32_t TRACE_CATEGORY_COUNT = 7;
@@ -227,11 +225,10 @@ constexpr uint32_t DEFAULT_CATEGORY_COUNT = 4;
 static constexpr JSVM_TraceCategory DEFAULT_CATAGORIES[] = { JSVM_TRACE_VM, JSVM_TRACE_EXECUTE, JSVM_TRACE_COMPILE,
                                                              JSVM_TRACE_RUNTIME };
 
-static v8::ArrayBuffer::Allocator* GetOrCreateDefaultArrayBufferAllocator()
+static inline v8::ArrayBuffer::Allocator* GetOrCreateDefaultArrayBufferAllocator()
 {
-    if (!defaultArrayBufferAllocator) {
-        defaultArrayBufferAllocator.reset(v8::ArrayBuffer::Allocator::NewDefaultAllocator());
-    }
+    static std::unique<v8::ArrayBuffer::Allocator> defaultArrayBufferAllocator(
+        v8::ArrayBuffer::Allocator::NewDefaultAllocator());
     return defaultArrayBufferAllocator.get();
 }
 
@@ -1023,14 +1020,14 @@ JSVM_Status OH_JSVM_Init(const JSVM_InitOptions* options)
     }
     initialized.store(true);
 
-    OHOS_API_CALL(platform::ohos::WriteHisysevent());
-    OHOS_API_CALL(platform::ohos::ReportKeyThread(platform::ohos::ThreadRole::IMPORTANT_DISPLAY));
+    OHOS_CALL(platform::ohos::WriteHisysevent());
+    OHOS_CALL(platform::ohos::ReportKeyThread(platform::ohos::ThreadRole::IMPORTANT_DISPLAY));
     v8::V8::InitializePlatform(v8impl::g_platform.get());
 
     if (options && options->argc && options->argv) {
         v8::V8::SetFlagsFromCommandLine(options->argc, options->argv, options->removeFlags);
     }
-    OHOS_API_CALL(platform::ohos::SetSecurityMode());
+    OHOS_CALL(platform::ohos::SetSecurityMode());
     v8::V8::Initialize();
 
     const auto cb = v8impl::FunctionCallbackWrapper::Invoke;
@@ -1052,7 +1049,7 @@ JSVM_Status OH_JSVM_GetVM(JSVM_Env env, JSVM_VM* result)
 
 JSVM_Status OH_JSVM_CreateVM(const JSVM_CreateVMOptions* options, JSVM_VM* result)
 {
-    OHOS_API_CALL(platform::ohos::ReportKeyThread(platform::ohos::ThreadRole::USER_INTERACT));
+    OHOS_CALL(platform::ohos::ReportKeyThread(platform::ohos::ThreadRole::USER_INTERACT));
 
     v8::Isolate::CreateParams createParams;
     auto externalReferences = v8impl::externalReferenceRegistry.data();
@@ -4819,7 +4816,7 @@ JSVM_Status OH_JSVM_CompileWasmModule(JSVM_Env env,
 {
     JSVM_PREAMBLE(env);
     // add jit mode check
-    RETURN_STATUS_IF_FALSE(env, platform::ohos::InJitMode(), JSVM_JIT_MODE_EXPECTED);
+    RETURN_STATUS_IF_FALSE(env, OHOS_SELECT(platform::ohos::InJitMode(), true), JSVM_JIT_MODE_EXPECTED);
     CHECK_ARG(env, wasmBytecode);
     RETURN_STATUS_IF_FALSE(env, wasmBytecodeLength > 0, JSVM_INVALID_ARG);
     v8::MaybeLocal<v8::WasmModuleObject> maybeModule;
@@ -4849,7 +4846,7 @@ JSVM_Status OH_JSVM_CompileWasmFunction(JSVM_Env env,
 {
     JSVM_PREAMBLE(env);
     // add jit mode check
-    RETURN_STATUS_IF_FALSE(env, platform::ohos::InJitMode(), JSVM_JIT_MODE_EXPECTED);
+    RETURN_STATUS_IF_FALSE(env, OHOS_SELECT(platform::ohos::InJitMode(), true), JSVM_JIT_MODE_EXPECTED);
     CHECK_ARG(env, wasmModule);
     CHECK_SCOPE(env, wasmModule);
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(wasmModule);
@@ -4892,7 +4889,7 @@ JSVM_Status OH_JSVM_CreateWasmCache(JSVM_Env env, JSVM_Value wasmModule, const u
 {
     JSVM_PREAMBLE(env);
     // add jit mode check
-    RETURN_STATUS_IF_FALSE(env, platform::ohos::InJitMode(), JSVM_JIT_MODE_EXPECTED);
+    RETURN_STATUS_IF_FALSE(env, OHOS_SELECT(platform::ohos::InJitMode(), true), JSVM_JIT_MODE_EXPECTED);
     CHECK_ARG(env, wasmModule);
     CHECK_ARG(env, data);
     CHECK_ARG(env, length);
