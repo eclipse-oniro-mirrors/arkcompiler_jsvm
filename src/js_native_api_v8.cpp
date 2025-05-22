@@ -2873,9 +2873,13 @@ JSVM_Status OH_JSVM_GetCbInfo(JSVM_Env env,             // [in] JSVM environment
         *data = info->Data();
     }
 
-    if (argv != nullptr) {
-        for (int i = 0; i <= *argc; i++) {
-            ADD_VAL_TO_SCOPE_CHECK(env, argv[i]);
+    if (UNLIKELY(env->debugFlags)) {
+        if (UNLIKELY(env->debugFlags & (1 << JSVM_SCOPE_CHECK))) {
+            if (argv != nullptr) {
+                for (int i = 0; i <= *argc; i++) {
+                    ADD_VAL_TO_SCOPE_CHECK(env, argv[i]);
+                }
+            }
         }
     }
 
@@ -2919,6 +2923,16 @@ JSVM_Status OH_JSVM_CallFunction(JSVM_Env env,
 
     auto maybe =
         v8func->Call(context, v8recv, argc, reinterpret_cast<v8::Local<v8::Value>*>(const_cast<JSVM_Value*>(argv)));
+
+     if (UNLIKELY(env->debugFlags)) {
+        if (UNLIKELY(env->debugFlags & (1 << JSVM_SCOPE_CHECK))) {
+            if (argv != nullptr) {
+                for (int i = 0; i <= argc; i++) {
+                    ADD_VAL_TO_SCOPE_CHECK(env, argv[i]);
+                }
+            }
+        }
+    }
 
     RETURN_IF_EXCEPTION_HAS_CAUGHT(env);
 
@@ -3638,6 +3652,13 @@ JSVM_Status OH_JSVM_OpenEscapableHandleScope(JSVM_Env env, JSVM_EscapableHandleS
     *result =
         v8impl::JsEscapableHandleScopeFromV8EscapableHandleScope(new v8impl::EscapableHandleScopeWrapper(env->isolate));
     env->openHandleScopes++;
+
+    if (UNLIKELY(env->debugFlags)) {
+        if (UNLIKELY(env->debugFlags & (1 << JSVM_SCOPE_CHECK))) {
+            env->GetScopeTracker()->IncHandleScopeDepth();
+        }
+    }
+
     return ClearLastError(env);
 }
 
@@ -3653,6 +3674,14 @@ JSVM_Status OH_JSVM_CloseEscapableHandleScope(JSVM_Env env, JSVM_EscapableHandle
 
     delete v8impl::V8EscapableHandleScopeFromJsEscapableHandleScope(scope);
     env->openHandleScopes--;
+
+    if (UNLIKELY(env->debugFlags)) {
+        if (UNLIKELY(env->debugFlags & (1 << JSVM_SCOPE_CHECK))) {
+            env->GetScopeTracker()->ReleaseJSVMVals();
+            env->GetScopeTracker()->DecHandleScopeDepth();
+        }
+    }
+
     return ClearLastError(env);
 }
 
@@ -3680,10 +3709,9 @@ JSVM_Status OH_JSVM_EscapeHandle(JSVM_Env env, JSVM_EscapableHandleScope scope, 
     v8impl::EscapableHandleScopeWrapper* s = v8impl::V8EscapableHandleScopeFromJsEscapableHandleScope(scope);
     if (!s->IsEscapeCalled()) {
         *result = v8impl::JsValueFromV8LocalValue(s->Escape(v8impl::V8LocalValueFromJsValue(escapee)));
-        ADD_VAL_TO_SCOPE_CHECK(env, *result);
+        ADD_VAL_TO_ESCAPE_SCOPE_CHECK(env, *result);
         return ClearLastError(env);
     }
-    ADD_VAL_TO_SCOPE_CHECK(env, *result);
     return SetLastError(env, JSVM_ESCAPE_CALLED_TWICE);
 }
 

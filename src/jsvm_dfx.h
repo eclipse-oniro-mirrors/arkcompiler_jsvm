@@ -17,7 +17,7 @@
 #define JSVM_DFX_H
 
 #include <cassert>
-#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "jsvm_log.h"
@@ -27,6 +27,13 @@
 
 // v8 header
 #include "v8.h"
+
+#define JSVM_FATAL(message)                                                                      \
+    do {                                                                                         \
+        /* Make sure that this struct does not end up in inline code, but      */                \
+        /* rather in a read-only data section when modifying this code.        */                \
+        jsvm::OnFatalError(STRINGIFY(__FILE__) ":" STRINGIFY(__LINE__) " ", STRINGIFY(message)); \
+    } while (0)
 
 namespace jsvm {
 [[noreturn]] inline void OnFatalError(const char* location, const char* message)
@@ -56,43 +63,51 @@ class ScopeLifecycleTracker {
 public:
     uint32_t GetCurrentScopeDepth() const
     {
-        return currentScopeDepth;
+        return scopeDepthToVal.size();
     }
 
     void IncHandleScopeDepth()
     {
-        currentScopeDepth++;
+        scopeDepthToVal.push_back(std::vector<JSVM_Value>());
     }
 
     void DecHandleScopeDepth()
     {
-        currentScopeDepth--;
+        scopeDepthToVal.pop_back();
     }
 
     void ReleaseJSVMVals()
     {
-        if (scopeDepthToVal.find(currentScopeDepth) != scopeDepthToVal.end()) {
-            for (auto item : scopeDepthToVal[currentScopeDepth]) {
-                valToScopeDepth.erase(item);
-            }
+        if (scopeDepthToVal.size() == 0) {
+            JSVM_FATAL("Unpaired HandleScope detected after scope check is enabled!");
         }
-
-        if (currentScopeDepth > 0) {
-            scopeDepthToVal.erase(currentScopeDepth);
+        for (auto item : scopeDepthToVal[scopeDepthToVal.size() - 1]) {
+            addedVal.erase(item);
         }
     }
 
-    void AddJSVMVal(JSVM_Value val)
+    void AddJSVMVal(JSVM_Value val, bool isEscape = false)
     {
-        valToScopeDepth[val] = currentScopeDepth;
-        scopeDepthToVal[currentScopeDepth].push_back(val);
+        if (scopeDepthToVal.size() == 0) {
+            JSVM_FATAL("Unpaired HandleScope detected after scope check is enabled!");
+        }
+        addedVal.insert(val);
+        if (!isEscape) {
+            // Add JSVM value to current depth
+            scopeDepthToVal[scopeDepthToVal.size() - 1].push_back(val);
+        } else {
+            // Add JSVM value to parent depth
+            if (scopeDepthToVal.size() - 2 < 0) {
+                JSVM_FATAL("Not in any scope!");
+            }
+            scopeDepthToVal[scopeDepthToVal.size() - 2].push_back(val);
+        }
     }
 
     bool CheckJSVMVal(JSVM_Value val)
     {
-        auto values = scopeDepthToVal[currentScopeDepth];
-        auto it = std::find(values.begin(), values.end(), val);
-        if (it != values.end()) {
+        auto it = addedVal.find(val);
+        if (it != addedVal.end()) {
             return true;
         } else {
             return false;
@@ -100,19 +115,12 @@ public:
     }
 
 private:
-    uint32_t currentScopeDepth = 0;
-    std::unordered_map<JSVM_Value, uint32_t> valToScopeDepth;
-    std::unordered_map<uint32_t, std::vector<JSVM_Value>> scopeDepthToVal;
+    std::unordered_set<JSVM_Value> addedVal;
+    std::vector<std::vector<JSVM_Value>> scopeDepthToVal;
 };
 
 } // namespace jsvm
 
-#define JSVM_FATAL(message)                                                                      \
-    do {                                                                                         \
-        /* Make sure that this struct does not end up in inline code, but      */                \
-        /* rather in a read-only data section when modifying this code.        */                \
-        jsvm::OnFatalError(STRINGIFY(__FILE__) ":" STRINGIFY(__LINE__) " ", STRINGIFY(message)); \
-    } while (0)
 
 #define UNREACHABLE(...) JSVM_FATAL("Unreachable code reached" __VA_OPT__(": ") __VA_ARGS__)
 
