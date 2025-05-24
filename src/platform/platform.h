@@ -24,9 +24,11 @@
 
 #ifdef TARGET_OHOS
 #include "platform/platform_ohos.h"
-#define OHOS_API_CALL(api_call) api_call
+#define OHOS_CALL(api_call) api_call
+#define OHOS_SELECT(expr_ohos, expr_non_ohos) expr_ohos
 #else
-#define OHOS_API_CALL(api_call)
+#define OHOS_CALL(api_call)
+#define OHOS_SELECT(expr_ohos, expr_non_ohos) expr_non_ohos
 #endif
 
 namespace platform {

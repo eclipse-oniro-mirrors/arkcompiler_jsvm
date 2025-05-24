@@ -1205,21 +1205,21 @@ int FindAvailablePort()
         if (sockfd < 0) {
             continue;
         }
-        fdsan_exchange_owner_tag(sockfd, 0, LOG_DOMAIN);
+        OHOS_CALL(fdsan_exchange_owner_tag(sockfd, 0, LOG_DOMAIN));
         struct sockaddr_in addr;
         addr.sin_family = AF_INET;
         addr.sin_addr.s_addr = htonl(INADDR_ANY);
         addr.sin_port = htons(port);
 
         if (bind(sockfd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
-            fdsan_close_with_tag(sockfd, LOG_DOMAIN);
+            OHOS_SELECT(fdsan_close_with_tag(sockfd, LOG_DOMAIN), close(sockfd));
             if (errno == EADDRINUSE) {
                 continue;
             } else {
                 break;
             }
         }
-        fdsan_close_with_tag(sockfd, LOG_DOMAIN);
+        OHOS_SELECT(fdsan_close_with_tag(sockfd, LOG_DOMAIN), close(sockfd));
         return port;
     }
     return invalidPort;
