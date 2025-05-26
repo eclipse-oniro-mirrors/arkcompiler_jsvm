@@ -227,7 +227,7 @@ static constexpr JSVM_TraceCategory DEFAULT_CATAGORIES[] = { JSVM_TRACE_VM, JSVM
 
 static inline v8::ArrayBuffer::Allocator* GetOrCreateDefaultArrayBufferAllocator()
 {
-    static std::unique<v8::ArrayBuffer::Allocator> defaultArrayBufferAllocator(
+    static std::unique_ptr<v8::ArrayBuffer::Allocator> defaultArrayBufferAllocator(
         v8::ArrayBuffer::Allocator::NewDefaultAllocator());
     return defaultArrayBufferAllocator.get();
 }
