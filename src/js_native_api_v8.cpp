@@ -2873,7 +2873,7 @@ JSVM_Status OH_JSVM_GetCbInfo(JSVM_Env env,             // [in] JSVM environment
     if (UNLIKELY(env->debugFlags)) {
         if (UNLIKELY(env->debugFlags & (1 << JSVM_SCOPE_CHECK))) {
             if (argv != nullptr) {
-                for (int i = 0; i <= *argc; i++) {
+                for (size_t i = 0; i <= *argc; i++) {
                     ADD_VAL_TO_SCOPE_CHECK(env, argv[i]);
                 }
             }
