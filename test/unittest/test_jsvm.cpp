@@ -1558,7 +1558,7 @@ HWTEST_F(JSVMTest, test_set_debug_option1, TestSize.Level1)
 
 static bool g_fatalErrorFinished = false;
 
-void HandleAbort(int sig)
+static void HandleAbort(int sig)
 {
     g_fatalErrorFinished = true;
     longjmp(g_buf, 1);
