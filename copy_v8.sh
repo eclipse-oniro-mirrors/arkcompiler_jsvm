@@ -16,15 +16,16 @@ v8_path=$3
 target_cpu=$4
 
 JSVM_PATH=$(dirname $(readlink -f "$0"))
+js_engine_url_version=arkcompiler_jsvm_20250527.tar.gz
+llvm_version=llvm-linux-19.1.7-x86_64.tar.gz
 if [ ! -d "${v8_path}/v8" ]; then
-  wget -o ${JSVM_PATH}/wget_download.log -O ${JSVM_PATH}/arkcompiler_jsvm_20250514.tar.gz https://mirrors.huaweicloud.com/openharmony/compiler/jsvm/arkcompiler_jsvm_20250514.tar.gz
+  wget -o ${JSVM_PATH}/wget_download.log -O ${JSVM_PATH}/${js_engine_url_version} https://mirrors.huaweicloud.com/openharmony/compiler/jsvm/${js_engine_url_version}
+  wget -o ${JSVM_PATH}/wget_download.log -O ${JSVM_PATH}/${llvm_version} https://mirrors.huaweicloud.com/openharmony/compiler/jsvm/${llvm_version}
   cd ${JSVM_PATH}
-  tar -zxf arkcompiler_jsvm_20250514.tar.gz
-  cp -r ${JSVM_PATH}/js_engine_url/v8 ${v8_path}
-  mkdir -p "${v8_path}/v8-include"
-  cp -r ${JSVM_PATH}/js_engine_url/v8-include ${v8_path}/v8-include/
-  mkdir -p "${v8_path}/v8/arm64/lib.unstripped_v8/lib.unstripped"
-  cp -r ${v8_path}/v8/arm64/libv8_shared.so ${v8_path}/v8/arm64/lib.unstripped_v8/lib.unstripped
+  tar -zxf ${js_engine_url_version}
+  tar -zxf ${llvm_version}
+  cp -r ${JSVM_PATH}/js_engine_url/* ${v8_path}
+  cp -r ${JSVM_PATH}/llvm ${v8_path}
 fi
 
 cp -u ${v8_path}/v8/${target_cpu}/libv8_shared.so ${TARGET_GEN_DIR}/libv8_shared.so

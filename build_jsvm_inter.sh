@@ -141,6 +141,7 @@ do_env() {
     if [[ "${TARGET_CPU}" = "arm" ]]; then
         cflags="  --target=arm-linux-ohos"
         cflags+=" --sysroot=${SYSROOT}"
+        cflags+=" -isystem ${SYSROOT}/usr/include/arm-linux-ohos"
         cflags+=" -march=armv7-a"
         cflags+=" -mfpu=neon"
         cflags+=" -mbranch-protection=pac-ret+b-key+bti"
@@ -149,6 +150,7 @@ do_env() {
     elif [[ "${TARGET_CPU}" = "arm64" ]]; then
         cflags="  --target=aarch64-linux-ohos"
         cflags+=" --sysroot=${SYSROOT}"
+        cflags+=" -isystem ${SYSROOT}/usr/include/aarch64-linux-ohos"
         cflags+=" -march=armv8-a"
         cflags+=" -DV8_OS_OH=1"
         cflags+=" -mfpu=neon"
@@ -158,7 +160,7 @@ do_env() {
     elif [[ "${TARGET_CPU}" = "x86_64" ]]; then
         cflags="--target=x86_64-linux-ohos"
         cflags+=" --sysroot=${SYSROOT}"
-	    cflags+=" -isystem ${SYSROOT}/usr/include/x86_64-linux-ohos"
+        cflags+=" -isystem ${SYSROOT}/usr/include/x86_64-linux-ohos"
         cflags+=" -DV8_OS_OH=1"
         ARCH="x86_64"
     else

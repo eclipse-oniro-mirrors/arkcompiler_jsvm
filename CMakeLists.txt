@@ -92,6 +92,8 @@ target_link_options(jsvm
   "-Wl,--exclude-libs=libc++_static.a"
 )
 
+string(FIND "$ENV{SYSROOT}" "rk3568" RK3568_INDEX)
+if (RK3568_INDEX LESS 0)
 if ((DEFINED USE_LIBZ_INNER) AND USE_LIBZ_INNER)
 target_link_libraries(jsvm
   libz_inner.a
@@ -124,4 +126,5 @@ target_link_libraries(jsvm
   libhilog.so
   c++_static
 )
+endif()
 endif()
