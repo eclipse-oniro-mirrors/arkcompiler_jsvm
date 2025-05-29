@@ -19,11 +19,18 @@ JSVM_PATH=$(dirname $(readlink -f "$0"))
 js_engine_url_version=arkcompiler_jsvm_20250527.tar.gz
 llvm_version=llvm-linux-19.1.7-x86_64.tar.gz
 if [ ! -d "${v8_path}/v8" ]; then
-  wget -o ${JSVM_PATH}/wget_download.log -O ${JSVM_PATH}/${js_engine_url_version} https://mirrors.huaweicloud.com/openharmony/compiler/jsvm/${js_engine_url_version}
-  wget -o ${JSVM_PATH}/wget_download.log -O ${JSVM_PATH}/${llvm_version} https://mirrors.huaweicloud.com/openharmony/compiler/jsvm/${llvm_version}
-  cd ${JSVM_PATH}
-  tar -zxf ${js_engine_url_version}
-  tar -zxf ${llvm_version}
+  if [ ! -f "${JSVM_PATH}/${js_engine_url_version}" ]; then
+    wget -o ${JSVM_PATH}/wget_download.log -O ${JSVM_PATH}/${js_engine_url_version} https://mirrors.huaweicloud.com/openharmony/compiler/jsvm/${js_engine_url_version}
+    cd ${JSVM_PATH}
+    tar -zxf ${js_engine_url_version}
+  fi
+  if [ ! -f "${JSVM_PATH}/${llvm_version}" ]; then
+    wget -o ${JSVM_PATH}/wget_download.log -O ${JSVM_PATH}/${llvm_version} https://mirrors.huaweicloud.com/openharmony/compiler/jsvm/${llvm_version}
+    cd ${JSVM_PATH}
+    tar -zxf ${llvm_version}
+  fi
+  mkdir -p ${v8_path}
+  rm -rf ${v8_path}/*
   cp -r ${JSVM_PATH}/js_engine_url/* ${v8_path}
   cp -r ${JSVM_PATH}/llvm ${v8_path}
 fi
