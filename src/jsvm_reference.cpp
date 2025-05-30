@@ -258,7 +258,7 @@ void RuntimeReference::FirstPassCallback(const v8::WeakCallbackInfo<RuntimeRefer
     RuntimeReference* reference = data.GetParameter();
 
     reference->persistent.Reset();
-    data.SetSecondPassCallback(RuntimeReference::SecondPassCallback);
+    reference->Finalize();
 }
 
 void RuntimeReference::SecondPassCallback(const v8::WeakCallbackInfo<RuntimeReference>& data)
