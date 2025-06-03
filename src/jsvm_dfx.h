@@ -97,10 +97,11 @@ public:
             scopeDepthToVal[scopeDepthToVal.size() - 1].push_back(val);
         } else {
             // Add JSVM value to parent depth
-            if (scopeDepthToVal.size() - 2 < 0) {
+            constexpr size_t depth = 2;
+            if (scopeDepthToVal.size() < depth) {
                 JSVM_FATAL("Not in any scope!");
             }
-            scopeDepthToVal[scopeDepthToVal.size() - 2].push_back(val);
+            scopeDepthToVal[scopeDepthToVal.size() - depth].push_back(val);
         }
     }
 
