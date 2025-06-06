@@ -4123,13 +4123,12 @@ JSVM_Status OH_JSVM_GetDataviewInfo(JSVM_Env env,
 
     if (arraybuffer != nullptr) {
         *arraybuffer = v8impl::JsValueFromV8LocalValue(buffer);
+        ADD_VAL_TO_SCOPE_CHECK(env, *arraybuffer);
     }
 
     if (byteOffset != nullptr) {
         *byteOffset = array->ByteOffset();
     }
-
-    ADD_VAL_TO_SCOPE_CHECK(env, *arraybuffer);
 
     return ClearLastError(env);
 }
