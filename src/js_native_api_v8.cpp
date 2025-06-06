@@ -1214,14 +1214,14 @@ JSVM_Status OH_JSVM_OpenEnvScope(JSVM_Env env, JSVM_EnvScope* result)
 {
     auto *v8scope = env->scopeMemoryManager.New<v8::Context::Scope>(env->context());
     *result = reinterpret_cast<JSVM_EnvScope>(v8scope);
-    return ClearLastError(env);
+    return JSVM_OK;
 }
 
 JSVM_Status OH_JSVM_CloseEnvScope(JSVM_Env env, JSVM_EnvScope scope)
 {
     auto v8scope = reinterpret_cast<v8::Context::Scope*>(scope);
     env->scopeMemoryManager.Delete(v8scope);
-    return ClearLastError(env);
+    return JSVM_OK;
 }
 
 JSVM_Status OH_JSVM_CompileScript(JSVM_Env env,
@@ -1497,7 +1497,7 @@ JSVM_Status OH_JSVM_CreateCodeCache(JSVM_Env env, JSVM_Script script, const uint
     *length = cache->length;
     cache->buffer_policy = v8::ScriptCompiler::CachedData::BufferNotOwned;
     delete cache;
-    return ClearLastError(env);
+    return JSVM_OK;
 }
 
 JSVM_Status OH_JSVM_RunScript(JSVM_Env env, JSVM_Script script, JSVM_Value* result)
@@ -1667,7 +1667,6 @@ JSVM_EXTERN JSVM_Status OH_JSVM_OpenInspector(JSVM_Env env, const char* host, ui
     auto agent = env->GetInspectorAgent();
     if (!agent->Start(inspectorPath, hostName, port)) {
         LOG(Error) << "Open Inspector failed: Please check the internet permisson.";
-        return SetLastError(env, JSVM_GENERIC_FAILURE);
     }
 
     return GET_RETURN_STATUS(env);
@@ -4771,7 +4770,6 @@ JSVM_Status OH_JSVM_OpenInspectorWithName(JSVM_Env env, int pid, const char* nam
 
     if (!env->GetInspectorAgent()->Start(path, pid)) {
         LOG(Error) << "Open Inspector failed: Please check the internet permisson.";
-        return SetLastError(env, JSVM_GENERIC_FAILURE);
     }
     return GET_RETURN_STATUS(env);
 }
