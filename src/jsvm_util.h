@@ -49,8 +49,10 @@
 
 #ifdef __GNUC__
 #define FORCE_INLINE __attribute__((always_inline))
+#define FORCE_NOINLINE __attribute__((noinline))
 #else
 #define FORCE_INLINE
+#define FORCE_NOINLINE
 #endif
 
 namespace jsvm {
