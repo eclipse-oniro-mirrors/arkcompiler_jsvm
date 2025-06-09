@@ -1219,7 +1219,8 @@ static JSVM_Value Add(JSVM_Env env, JSVM_CallbackInfo info)
     size_t argc = 2;
     JSVM_Value args[2];
     OH_JSVM_GetCbInfo(env, info, &argc, args, NULL, NULL);
-    double num1, num2;
+    double num1 = 0.0;
+    double num2 = 0.0;
     OH_JSVM_GetValueDouble(env, args[0], &num1);
     OH_JSVM_GetValueDouble(env, args[1], &num2);
     JSVM_Value sum = nullptr;
