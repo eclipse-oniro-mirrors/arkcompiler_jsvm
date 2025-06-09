@@ -190,24 +190,21 @@ inline JSVM_Status SetLastError(JSVM_Env env,
 
 #define JSVM_PRIVATE_KEY(isolate, suffix) (v8impl::GetIsolateData(isolate)->suffix##Key.Get(isolate))
 
-#define ADD_VAL_TO_SCOPE_CHECK(env, val)                                          \
-    do {                                                                          \
-        if (UNLIKELY((env)->debugFlags)) {                                        \
-            if (UNLIKELY((env)->debugFlags & (1 << JSVM_SCOPE_CHECK)) && (val)) { \
-                LOG(Info) << "ADD_VAL_TO_SCOPE_CHECK in function: " << __func__;  \
-                (env)->GetScopeTracker()->AddJSVMVal(val);                        \
-            }                                                                     \
-        }                                                                         \
+FORCE_NOINLINE void AddValueToScopeCheck(JSVM_Env env, JSVM_Value val);
+FORCE_NOINLINE void AddValueToEscapeScopeCheck(JSVM_Env env, JSVM_Value val);
+
+#define ADD_VAL_TO_SCOPE_CHECK(env, val)              \
+    do {                                              \
+        if (UNLIKELY((env)->debugFlags)) {            \
+            AddValueToScopeCheck(env, val, __func__); \
+        }                                             \
     } while (0)
 
-#define ADD_VAL_TO_ESCAPE_SCOPE_CHECK(env, val)                                   \
-    do {                                                                          \
-        if (UNLIKELY((env)->debugFlags)) {                                        \
-            if (UNLIKELY((env)->debugFlags & (1 << JSVM_SCOPE_CHECK)) && (val)) { \
-                LOG(Info) << "ADD_VAL_TO_SCOPE_CHECK in function: " << __func__;  \
-                (env)->GetScopeTracker()->AddJSVMVal(val, true);                  \
-            }                                                                     \
-        }                                                                         \
+#define ADD_VAL_TO_ESCAPE_SCOPE_CHECK(env, val)             \
+    do {                                                    \
+        if (UNLIKELY((env)->debugFlags)) {                  \
+            AddValueToScopeCheck(env, val, __func__, true); \
+        }                                                   \
     } while (0)
 
 #define CHECK_SCOPE(env, val)                                                     \

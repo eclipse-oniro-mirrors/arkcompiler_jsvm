@@ -43,6 +43,16 @@
 #error Unsupported Perfetto.
 #endif // V8_USE_PERFETTO
 #define TRACE_DISABLED_BY_DEFAULT(name) "disabled-by-default-" name
+
+FORCE_NOINLINE void AddValueToScopeCheck(
+    JSVM_Env env, JSVM_Value val, const char *callerFunctionName, bool isEscape = false)
+{
+    if (UNLIKELY((env)->debugFlags & (1 << JSVM_SCOPE_CHECK)) && (val)) {
+        LOG(Info) << "ADD_VAL_TO_SCOPE_CHECK in function: " << callerFunctionName;
+        (env)->GetScopeTracker()->AddJSVMVal(val, isEscape);
+    }
+}
+
 namespace v8impl {
 
 namespace {
