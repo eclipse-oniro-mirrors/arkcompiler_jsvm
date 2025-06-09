@@ -53,6 +53,16 @@ FORCE_NOINLINE void AddValueToScopeCheck(
     }
 }
 
+FORCE_NOINLINE void CheckScope(JSVM_Env env, JSVM_Value val, const char *callerFunctionName)
+{
+    if (UNLIKELY((env)->debugFlags & (1 << JSVM_SCOPE_CHECK)) && (val)) {
+        LOG(Info) << "CHECK_SCOPE in function: " << callerFunctionName;
+        if (!(env)->GetScopeTracker()->CheckJSVMVal(val)) {
+            JSVM_FATAL("Run in wrong HandleScope");
+        }
+    }
+}
+
 namespace v8impl {
 
 namespace {
@@ -4542,7 +4552,6 @@ JSVM_Status OH_JSVM_IsUndefined(JSVM_Env env, JSVM_Value value, bool* isUndefine
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isUndefined);
-    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     *isUndefined = val->IsUndefined();
@@ -4557,7 +4566,6 @@ JSVM_Status OH_JSVM_IsNull(JSVM_Env env, JSVM_Value value, bool* isNull)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isNull);
-    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     *isNull = val->IsNull();
@@ -4572,7 +4580,6 @@ JSVM_Status OH_JSVM_IsNullOrUndefined(JSVM_Env env, JSVM_Value value, bool* isNu
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isNullOrUndefined);
-    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     *isNullOrUndefined = val->IsNullOrUndefined();
@@ -4617,7 +4624,6 @@ JSVM_Status OH_JSVM_IsString(JSVM_Env env, JSVM_Value value, bool* isString)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isString);
-    CHECK_SCOPE(env, value);
 
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
     *isString = val->IsString();

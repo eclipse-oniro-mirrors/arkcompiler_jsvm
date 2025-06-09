@@ -192,6 +192,7 @@ inline JSVM_Status SetLastError(JSVM_Env env,
 
 FORCE_NOINLINE void AddValueToScopeCheck(JSVM_Env env, JSVM_Value val);
 FORCE_NOINLINE void AddValueToEscapeScopeCheck(JSVM_Env env, JSVM_Value val);
+FORCE_NOINLINE void CheckScope(JSVM_Env env, JSVM_Value val, const char *callerFunctionName);
 
 #define ADD_VAL_TO_SCOPE_CHECK(env, val)              \
     do {                                              \
@@ -207,16 +208,11 @@ FORCE_NOINLINE void AddValueToEscapeScopeCheck(JSVM_Env env, JSVM_Value val);
         }                                                   \
     } while (0)
 
-#define CHECK_SCOPE(env, val)                                                     \
-    do {                                                                          \
-        if (UNLIKELY((env)->debugFlags)) {                                        \
-            if (UNLIKELY((env)->debugFlags & (1 << JSVM_SCOPE_CHECK)) && (val)) { \
-                LOG(Info) << "CHECK_SCOPE in function: " << __func__;             \
-                if (!(env)->GetScopeTracker()->CheckJSVMVal(val)) {               \
-                    JSVM_FATAL("Run in wrong HandleScope");                       \
-                }                                                                 \
-            }                                                                     \
-        }                                                                         \
+#define CHECK_SCOPE(env, val)               \
+    do {                                    \
+        if (UNLIKELY((env)->debugFlags)) {  \
+            CheckScope(env, val, __func__); \
+        }                                   \
     } while (0)
 
 #define STATUS_CALL(call)            \
