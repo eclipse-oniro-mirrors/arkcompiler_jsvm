@@ -4545,6 +4545,14 @@ JSVM_Status OH_JSVM_IsCallable(JSVM_Env env, JSVM_Value value, bool* isCallable)
     return ClearLastError(env);
 }
 
+FORCE_INLINE JSVM_Status IsUndefinedImpl(JSVM_Env env, JSVM_Value value, bool* isUndefined)
+{
+    v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
+    *isUndefined = val->IsUndefined();
+
+    return ClearLastError(env);
+}
+
 JSVM_Status OH_JSVM_IsUndefined(JSVM_Env env, JSVM_Value value, bool* isUndefined)
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8
@@ -4552,9 +4560,15 @@ JSVM_Status OH_JSVM_IsUndefined(JSVM_Env env, JSVM_Value value, bool* isUndefine
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isUndefined);
+    CHECK_SCOPE_ISTYPE(env, value, IsUndefinedImpl(env, value, isUndefined));
 
+    return IsUndefinedImpl(env, value, isUndefined);
+}
+
+FORCE_INLINE JSVM_Status IsNullImpl(JSVM_Env env, JSVM_Value value, bool* isNull)
+{
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
-    *isUndefined = val->IsUndefined();
+    *isNull = val->IsNull();
 
     return ClearLastError(env);
 }
@@ -4566,9 +4580,15 @@ JSVM_Status OH_JSVM_IsNull(JSVM_Env env, JSVM_Value value, bool* isNull)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isNull);
+    CHECK_SCOPE_ISTYPE(env, value, IsNullImpl(env, value, isNull));
 
+    return IsNullImpl(env, value, isNull);
+}
+
+FORCE_INLINE JSVM_Status IsNullOrUndefinedImpl(JSVM_Env env, JSVM_Value value, bool* isNullOrUndefined)
+{
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
-    *isNull = val->IsNull();
+    *isNullOrUndefined = val->IsNullOrUndefined();
 
     return ClearLastError(env);
 }
@@ -4580,11 +4600,9 @@ JSVM_Status OH_JSVM_IsNullOrUndefined(JSVM_Env env, JSVM_Value value, bool* isNu
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isNullOrUndefined);
+    CHECK_SCOPE_ISTYPE(env, value, IsNullOrUndefinedImpl(env, value, isNullOrUndefined));
 
-    v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
-    *isNullOrUndefined = val->IsNullOrUndefined();
-
-    return ClearLastError(env);
+    return IsNullOrUndefinedImpl(env, value, isNullOrUndefined);
 }
 
 JSVM_Status OH_JSVM_IsBoolean(JSVM_Env env, JSVM_Value value, bool* isBoolean)
@@ -4617,6 +4635,14 @@ JSVM_Status OH_JSVM_IsNumber(JSVM_Env env, JSVM_Value value, bool* isNumber)
     return ClearLastError(env);
 }
 
+FORCE_INLINE JSVM_Status IsStringImpl(JSVM_Env env, JSVM_Value value, bool* isString)
+{
+    v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
+    *isString = val->IsString();
+
+    return ClearLastError(env);
+}
+
 JSVM_Status OH_JSVM_IsString(JSVM_Env env, JSVM_Value value, bool* isString)
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8
@@ -4624,11 +4650,9 @@ JSVM_Status OH_JSVM_IsString(JSVM_Env env, JSVM_Value value, bool* isString)
     CHECK_ENV(env);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isString);
+    CHECK_SCOPE_ISTYPE(env, value, IsStringImpl(env, value, isString));
 
-    v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(value);
-    *isString = val->IsString();
-
-    return ClearLastError(env);
+    return IsStringImpl(env, value, isString);
 }
 
 JSVM_Status OH_JSVM_IsSymbol(JSVM_Env env, JSVM_Value value, bool* isSymbol)
