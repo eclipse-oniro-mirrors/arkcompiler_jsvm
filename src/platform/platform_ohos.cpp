@@ -141,34 +141,14 @@ static bool isJitMode = true;
 namespace ohos {
 #define JITFORT_QUERY_ENCAPS 'E'
 #define HM_PR_SET_JITFORT 0x6a6974
- 
-const std::string ENABLE_JIT_CONF_PATH = "/etc/jsvm/app_jit_enable_list.conf";
+
 bool ProcessBundleName(std::string& bundleName);
- 
-void ReadEnableList(const std::string& jitConfigPath, std::unordered_set<std::string>& enableSet)
-{
-    std::ifstream file(jitConfigPath);
-    if (file.is_open()) {
-        std::string line;
-        while (std::getline(file, line)) {
-            if (!line.empty()) {
-                enableSet.insert(line);
-            }
-        }
-        file.close();
-    }
-}
  
 bool InJitMode()
 {
     return isJitMode;
 }
- 
-inline bool InAppEnableList(const std::string& bundleName, std::unordered_set<std::string>& enableSet)
-{
-    return (enableSet.count(bundleName) != 0);
-}
- 
+
 inline bool HasJitfortACL()
 {
     return (prctl(HM_PR_SET_JITFORT, JITFORT_QUERY_ENCAPS, 0) == 0);
@@ -223,14 +203,7 @@ inline bool ReadSystemXpmState()
 void SetSecurityMode()
 {
     constexpr size_t secArgCnt = 2;
-    std::string bundleName;
-    if (!ProcessBundleName(bundleName)) {
-        bundleName = "INVALID_BUNDLE_NAME";
-    }
-    std::unordered_set<std::string> enableList {};
-    ReadEnableList(ENABLE_JIT_CONF_PATH, enableList);
-
-    if (ReadSystemXpmState() || (!InAppEnableList(bundleName, enableList) && !HasJitfortACL())) {
+    if (ReadSystemXpmState() || !HasJitfortACL()) {
         isJitMode = false;
         int secArgc = secArgCnt;
         constexpr bool removeFlag = false;

@@ -328,7 +328,7 @@ typedef enum {
      */
     JSVM_INVALID_TYPE,
     /** jit mode expected status.
-     * @since 15
+     * @since 18
      */
     JSVM_JIT_MODE_EXPECTED,
 } JSVM_Status;
