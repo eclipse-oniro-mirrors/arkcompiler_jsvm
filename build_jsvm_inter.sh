@@ -130,7 +130,7 @@ do_env() {
     # alway rebuild
     mkdir -p ${workdir}
 
-    argurment+=" -I${PREFIX}/../include/c++/v1  -D__MUSL__  -D_LIBCPP_HAS_MUSL_LIBC -DOHOS_JS_ENGINE"
+    argurment+=" -D__MUSL__  -D_LIBCPP_HAS_MUSL_LIBC -DOHOS_JS_ENGINE"
     argurment+=" -fstack-protector-strong"
     argurment+=" -Wl,-z,noexecstack"
     argurment+=" -Wl,-z,relro"
@@ -163,6 +163,7 @@ do_env() {
         cflags_host="-m64"
         ARCH="aarch64"
     elif [[ "${TARGET_CPU}" = "x86_64" ]]; then
+        argurment+=" -I${PREFIX}/../include/c++/v1"
         cflags="--target=x86_64-linux-ohos"
         cflags+=" --sysroot=${SYSROOT}"
         cflags+=" -isystem ${SYSROOT}/usr/include/x86_64-linux-ohos"
