@@ -215,6 +215,14 @@ FORCE_NOINLINE void CheckScope(JSVM_Env env, JSVM_Value val, const char *callerF
         }                                   \
     } while (0)
 
+#define CHECK_SCOPE_ISTYPE(env, val, func)  \
+    do {                                    \
+        if (UNLIKELY((env)->debugFlags)) {  \
+            CheckScope(env, val, __func__); \
+            return func;                    \
+        }                                   \
+    } while (0)
+
 #define STATUS_CALL(call)            \
     do {                             \
         JSVM_Status status = (call); \
