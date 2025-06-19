@@ -22,11 +22,13 @@
 #include "hilog/log.h"
 #include "hitrace_meter.h"
 #include "init_param.h"
+#include "jsvm_log.h"
 #include "res_sched_client.h"
 #include "unistd.h"
 #ifdef ENABLE_HISYSEVENT
 #include "hisysevent.h"
 #endif
+#include <dlfcn.h>
 #include <string>
 #include <sys/prctl.h>
 #include <unordered_set>
@@ -188,22 +190,40 @@ void ReportKeyThread(ThreadRole role)
 }
 #endif
 
-inline bool ReadSystemXpmState()
+bool ReadAdvancedSecurityMode()
 {
-    constexpr size_t argBuffSize = 32;
-    char buffer[argBuffSize] = { 0 };
-    uint32_t buffSize = sizeof(buffer);
-
-    if (SystemGetParameter("ohos.boot.advsecmode.state", buffer, &buffSize) == 0 && strcmp(buffer, "0") != 0) {
-        return true;
+    void *hdl = dlopen("/system/lib64/platformsdk/libdsmm_innersdk.z.so", RTLD_LAZY);
+    if (!hdl) {
+        LOG(Error) << "[AdvancedSecurityMode]: dlopen failed";
+        return false;
     }
-    return false;
+
+    using AdvSecModeGetPtr = int32_t (*)(const char *feature, uint32_t featureLen,
+                                         const char *param, uint32_t paramLen, uint32_t *state);
+    AdvSecModeGetPtr func = reinterpret_cast<AdvSecModeGetPtr>(dlsym(hdl, "AdvancedSecurityModeGetStateByFeature"));
+    if (!func) {
+        LOG(Error) << "[AdvancedSecurityMode]: dlsym failed";
+        dlclose(hdl);
+        return false;
+    }
+
+    const char* featureName = "RESTRICTED_JSVM_FEATURES";
+    const char* emptyParam = "{}";
+    uint32_t state = 0;
+    int32_t ret = func(featureName, strlen(featureName), emptyParam, strlen(emptyParam), &state);
+    dlclose(hdl);
+
+    if (ret != 0) {
+        LOG(Error) << "[AdvancedSecurityMode]: AdvSecModeGetPtr failed";
+        return false;
+    }
+    return static_cast<bool>(state);
 }
 
 void SetSecurityMode()
 {
     constexpr size_t secArgCnt = 2;
-    if (ReadSystemXpmState() || !HasJitfortACL()) {
+    if (ReadAdvancedSecurityMode() || !HasJitfortACL()) {
         isJitMode = false;
         int secArgc = secArgCnt;
         constexpr bool removeFlag = false;
