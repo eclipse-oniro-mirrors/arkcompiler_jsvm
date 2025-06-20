@@ -6000,3 +6000,51 @@ JSVM_Status OH_JSVM_PromiseRegisterHandler(JSVM_Env env,
 
     return ClearLastError(env);
 }
+
+__attribute__((visibility("default"))) int step_jsvm(void *ctx, ReadMemFunc readMem, JsvmStepParam *frame)
+{
+    uintptr_t preFp = 0;
+    readMem(ctx, *(frame->fp), &preFp);
+    uintptr_t prePc = 0;
+    readMem(ctx, *(frame->fp) + sizeof(void*), &prePc);
+
+    *(frame->fp) = preFp;
+    *(frame->pc) = prePc;
+    *(frame->sp) = preFp;
+    return 0;
+}
+
+
+__attribute__((visibility("default"))) int create_jsvm_extractor(uintptr_t* extractorPptr, uint32_t pid)
+{
+    uintptr_t extractorPtr = 0;
+    if (v8::V8::CreateJSVMExtractor(extractorPtr, pid) == 0) {
+        *extractorPptr = extractorPtr;
+        return 0;
+    } else {
+        return -1;
+    }
+}
+
+__attribute_((visibility)("default")) int destory_jsvm_extractor(uintptr_t extractorPtr)
+{
+    v8::V8::DeleteJSVMExtractor(extractorPtr);
+    return 0;
+}
+
+__attribute_((visibility)("default")) int jsvm_parse_js_frame_info(uintptr_t pc,
+                                                                   uintptr_t jsvmExtractorPtr,
+                                                                   JsvmFunction* jsvmFunction)
+{
+    std::string codeName;
+    int ret = v8::V8::GetJSVMCodeName(jsvmExtractorPtr, pc, codeName);
+    if (ret == 0) {
+        size_t nameSize = codeName.size() + 1;
+        if (strcpy_s(jsvmFunction->functionName, nameSize, codeName.c_str()) != EOK) {
+            return -1;
+        }
+        return 0;
+    } else {
+        return -1;
+    }
+}
