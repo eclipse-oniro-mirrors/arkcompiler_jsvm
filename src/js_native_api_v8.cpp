@@ -1200,6 +1200,7 @@ JSVM_Status OH_JSVM_CreateEnv(JSVM_VM vm,
             env->CreateScopeTracker();
         }
     }
+    LOG(Info) << "JSVM Env has been created";
     // The error code is set in constructor function, just return JSVM_OK here.
     return JSVM_OK;
 }
@@ -1227,6 +1228,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_CreateEnvFromSnapshot(JSVM_VM vm, size_t index, 
 JSVM_Status OH_JSVM_DestroyEnv(JSVM_Env env)
 {
     env->DeleteMe();
+    LOG(Info) << "JSVM Env has been destroyed";
     return JSVM_OK;
 }
 
