@@ -132,10 +132,10 @@ struct JsvmStepParam {
 
     JsvmStepParam(uintptr_t *fp, uintptr_t *sp, uintptr_t *pc, bool *isJsvmFrame)
         : fp(fp), sp(sp), pc(pc), isJsvmFrame(isJsvmFrame) {}
-}
+};
 struct JsvmFunction {
     char functionName[FUNCTIONNAME_MAX];
-}
+};
 
 typedef bool (*ReadMemFunc)(void *ctx, uintptr_t addr, uintptr_t *val);
 
@@ -143,7 +143,7 @@ extern "C" int step_jsvm(void *ctx, ReadMemFunc readMem, JsvmStepParam *frame);
 
 extern "C" int create_jsvm_extractor(uintptr_t *extractorPptr, uint32_t pid);
 
-extern "C" int destory_jsvm_extractor(uintptr_t extractorPtr);
+extern "C" int destroy_jsvm_extractor(uintptr_t extractorPtr);
 
 extern "C" int jsvm_parse_js_frame_info(uintptr_t pc,
                                         uintptr_t jsvmExtractorPtr,

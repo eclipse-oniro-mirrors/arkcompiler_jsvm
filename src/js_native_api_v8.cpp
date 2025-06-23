@@ -6052,15 +6052,15 @@ __attribute__((visibility("default"))) int create_jsvm_extractor(uintptr_t* extr
     }
 }
 
-__attribute_((visibility)("default")) int destory_jsvm_extractor(uintptr_t extractorPtr)
+__attribute__((visibility("default"))) int destroy_jsvm_extractor(uintptr_t extractorPtr)
 {
     v8::V8::DeleteJSVMExtractor(extractorPtr);
     return 0;
 }
 
-__attribute_((visibility)("default")) int jsvm_parse_js_frame_info(uintptr_t pc,
-                                                                   uintptr_t jsvmExtractorPtr,
-                                                                   JsvmFunction* jsvmFunction)
+__attribute__((visibility("default"))) int jsvm_parse_js_frame_info(uintptr_t pc,
+                                                                    uintptr_t jsvmExtractorPtr,
+                                                                    JsvmFunction* jsvmFunction)
 {
     std::string codeName;
     int ret = v8::V8::GetJSVMCodeName(jsvmExtractorPtr, pc, codeName);
