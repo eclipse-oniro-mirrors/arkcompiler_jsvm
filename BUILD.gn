@@ -15,6 +15,13 @@ import("//build/config/clang/clang.gni")
 import("//build/ohos.gni")
 import("jsvm.gni")
 
+ohos_prebuilt_etc("jit_enable_list_appid") {
+  relative_install_dir = "jsvm"
+  source = "./jit_enable_list_appid.conf"
+  part_name = "jsvm"
+  subsystem_name = "arkcompiler"
+}
+
 action("copy_v8") {
   external_deps = []
   deps = []
@@ -90,6 +97,7 @@ config("public_jsvm_config") {
 
 ohos_prebuilt_shared_library("libjsvm") {
   deps = [
+    ":jit_enable_list_appid",
     ":build_libjsvm",
   ]
 
