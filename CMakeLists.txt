@@ -44,6 +44,13 @@ include_directories(jsvm
   "interface/kits"
 )
 
+# TODO: samgr:samgr_proxy module, indirect dependencies cannot be passed
+if (DEPENDENCY_TAG STREQUAL "default")
+include_directories(jsvm
+  "../../foundation/systemabilitymgr/samgr/interfaces/innerkits/samgr_proxy/include"
+)
+endif()
+
 # 设置源文件
 set (jsvm_sources
   "src/js_native_api_v8.cpp"
@@ -74,7 +81,7 @@ set (LIB_DIRS
   "${LIB_ROOT_DIR}/thirdparty/libuv/"
   "${LIB_ROOT_DIR}/thirdparty/icu/"
   "${LIB_ROOT_DIR}/thirdparty/openssl/"
-  "${LIB_ROOT_DIR}/obj/vendor/huawei/foundation/bundlemanager/zlib_override/"
+  "${LIB_ROOT_DIR}/obj/vendor/${DEPENDENCY_TAG}/foundation/bundlemanager/zlib_override/"
 )
 set(CMAKE_SKIP_RPATH TRUE)
 link_directories(${LIB_DIRS})
@@ -92,8 +99,7 @@ target_link_options(jsvm
   "-Wl,--exclude-libs=libc++_static.a"
 )
 
-string(FIND "$ENV{SYSROOT}" "rk3568" RK3568_INDEX)
-if (RK3568_INDEX LESS 0)
+if (NOT DEPENDENCY_TAG STREQUAL "default")
 if ((DEFINED USE_LIBZ_INNER) AND USE_LIBZ_INNER)
 target_link_libraries(jsvm
   libz_inner.a

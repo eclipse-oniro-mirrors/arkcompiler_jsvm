@@ -20,6 +20,8 @@ declare PREFIX
 declare TARGET_CPU
 declare TARGET_GEN_DIR
 declare TARGET_PLATFORM
+declare JS_ENGINE_URL
+declare DEPENDENCY_TAG
 
 export SCRIPT_PATCH=$(dirname $(readlink -f "$0"))
 
@@ -89,6 +91,7 @@ do_opt_process() {
             ;;
         --prefix)
             export PREFIX=$2
+            export JS_ENGINE_URL=${PREFIX=}/../..
             shift
             ;;
         --target_cpu)
@@ -121,6 +124,10 @@ do_opt_process() {
             ;;
         --target_out_dir)
             export LIB_ROOT_DIR=$2
+            shift
+            ;;
+        --dependency_tag)
+            export DEPENDENCY_TAG=$2
             shift
             ;;
         -I*)
