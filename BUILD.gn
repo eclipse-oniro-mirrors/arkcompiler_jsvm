@@ -22,6 +22,9 @@ ohos_prebuilt_etc("jit_enable_list_appid") {
   subsystem_name = "arkcompiler"
 }
 
+dependency_tag = "default"
+js_engine_url = "//vendor/${dependency_tag}/binary/artifacts/js_engine_url/"
+
 action("copy_v8") {
   external_deps = []
   deps = []
@@ -34,7 +37,7 @@ action("copy_v8") {
   args = [
     "--target_gen_dir",
     rebase_path("$target_gen_dir"),
-    rebase_path("//vendor/huawei/binary/artifacts/js_engine_url/"),
+    rebase_path("${js_engine_url}"),
     target_cpu,
   ]
 }
@@ -154,7 +157,7 @@ action("build_libjsvm") {
     "--target_platform",
     "$target_platform",
     "--prefix",
-    rebase_path("//vendor/huawei/binary/artifacts/js_engine_url/llvm/bin"),
+    rebase_path("${js_engine_url}/llvm/bin"),
     "--sysroot",
     rebase_path("$musl_sysroot"),
     "--is_asan",
@@ -164,6 +167,8 @@ action("build_libjsvm") {
     "{{include_dirs}}",
     "--cmake_path",
     rebase_path("//prebuilts/cmake/linux-x86/bin/cmake"),
+    "--dependency_tag",
+    "${dependency_tag}",
     "--jsvm_path",
     rebase_path("."),
   ]

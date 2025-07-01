@@ -25,7 +25,7 @@ do_patch() {
 do_configure() {
     use_libz_inner=0
     
-    if [ -f "${LIB_ROOT_DIR}/obj/vendor/huawei/foundation/bundlemanager/zlib_override/libz_inner.a" ];then
+    if [ -f "${LIB_ROOT_DIR}/obj/vendor/${DEPENDENCY_TAG}/foundation/bundlemanager/zlib_override/libz_inner.a" ];then
         use_libz_inner=1
     fi
 
@@ -36,14 +36,15 @@ do_configure() {
         -B${TARGET_GEN_DIR}/build\
         -S${JSVM_PATH}\
         -DCMAKE_C_FLAGS="${CMAKE_C_FLAGS}"\
-        -DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS}"
+        -DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS}"\
+        -DDEPENDENCY_TAG="${DEPENDENCY_TAG}"
 }
 
 do_unstripped_copy() {
     JSVM_UNSTRIPPED_PATH=${TARGET_GEN_DIR}/../../../lib.unstripped/arkcompiler/jsvm/
     mkdir -p ${JSVM_UNSTRIPPED_PATH}
     cp -u ${workdir}/libjsvm.so ${JSVM_UNSTRIPPED_PATH}
-    cp -u ${JSVM_PATH}/../../vendor/huawei/binary/artifacts/js_engine_url/v8/${TARGET_CPU}/lib.unstripped_v8/lib.unstripped/libv8_shared.so ${JSVM_UNSTRIPPED_PATH}
+    cp -u ${JS_ENGINE_URL}/v8/${TARGET_CPU}/lib.unstripped_v8/lib.unstripped/libv8_shared.so ${JSVM_UNSTRIPPED_PATH}
 }
 
 get_thread_num() {
@@ -115,11 +116,11 @@ do_install_asan() {
     # todo replace libv8_shared.so with hwasan
     mkdir -p ${TARGET_GEN_DIR}/asan
     cp -u ${workdir}/libjsvm.so ${TARGET_GEN_DIR}/asan
-    cp -u ${JSVM_PATH}/../../vendor/huawei/binary/artifacts/js_engine_url/v8/${TARGET_CPU}/lib.unstripped_v8/lib.unstripped/libv8_shared.so ${TARGET_GEN_DIR}/asan
+    cp -u ${JS_ENGINE_URL}/v8/${TARGET_CPU}/lib.unstripped_v8/lib.unstripped/libv8_shared.so ${TARGET_GEN_DIR}/asan
 
     mkdir -p ${TARGET_GEN_DIR}/../../../../../lib.unstripped/jsvm/
     cp -u ${workdir}/libjsvm.so ${TARGET_GEN_DIR}/../../../../../lib.unstripped/jsvm/
-    cp -u ${JSVM_PATH}/../../vendor/huawei/binary/artifacts/js_engine_url/v8/${TARGET_CPU}/lib.unstripped_v8/lib.unstripped/libv8_shared.so ${TARGET_GEN_DIR}/../../../../../lib.unstripped/jsvm/
+    cp -u ${JS_ENGINE_URL}/v8/${TARGET_CPU}/lib.unstripped_v8/lib.unstripped/libv8_shared.so ${TARGET_GEN_DIR}/../../../../../lib.unstripped/jsvm/
 }
 
 do_env() {
@@ -141,7 +142,9 @@ do_env() {
     if [[ "${TARGET_CPU}" = "arm" ]]; then
         cflags="  --target=arm-linux-ohos"
         cflags+=" --sysroot=${SYSROOT}"
-        cflags+=" -isystem ${SYSROOT}/usr/include/arm-linux-ohos"
+        if [[ "${DEPENDENCY_TAG}" = "default" ]]; then
+          cflags+=" -isystem ${SYSROOT}/usr/include/arm-linux-ohos"
+        fi
         cflags+=" -march=armv7-a"
         cflags+=" -mfpu=neon"
         cflags+=" -mbranch-protection=pac-ret+b-key+bti"
@@ -150,7 +153,9 @@ do_env() {
     elif [[ "${TARGET_CPU}" = "arm64" ]]; then
         cflags="  --target=aarch64-linux-ohos"
         cflags+=" --sysroot=${SYSROOT}"
-        cflags+=" -isystem ${SYSROOT}/usr/include/aarch64-linux-ohos"
+        if [[ "${DEPENDENCY_TAG}" = "default" ]]; then
+          cflags+=" -isystem ${SYSROOT}/usr/include/aarch64-linux-ohos"
+        fi
         cflags+=" -march=armv8-a"
         cflags+=" -DV8_OS_OH=1"
         cflags+=" -mfpu=neon"
