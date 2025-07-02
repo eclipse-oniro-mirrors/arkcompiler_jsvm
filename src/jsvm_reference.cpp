@@ -111,7 +111,7 @@ void FinalizerTracker::CallFinalizer()
     if (!env) {
         cbTemp(env, dataTemp, hintTemp);
     } else {
-        env->CallFinalizer(cbTemp, dataTemp, hintTemp);
+        env->CallIntoModule([&](JSVM_Env env) { cbTemp(env, dataTemp, hintTemp); });
     }
 }
 
