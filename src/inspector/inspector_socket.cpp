@@ -775,6 +775,7 @@ void TcpHolder::DisconnectAndDispose(TcpHolder* holder)
 void TcpHolder::ReclaimUvBuf(const uv_buf_t* buf, ssize_t read)
 {
     if (read > 0) {
+        DCHECK(read <= buf.len);
         // insert buffer
         buffer.insert(buffer.end(), buf->base, buf->base + read);
     }

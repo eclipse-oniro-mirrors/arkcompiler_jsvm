@@ -1072,7 +1072,8 @@ JSVM_Status OH_JSVM_CreateVM(const JSVM_CreateVMOptions* options, JSVM_VM* resul
     OHOS_CALL(platform::ohos::ReportKeyThread(platform::ohos::ThreadRole::USER_INTERACT));
 
     v8::Isolate::CreateParams createParams;
-    auto externalReferences = v8impl::externalReferenceRegistry.data();
+    auto externalReferences =
+        v8impl::externalReferenceRegistry.empty() ? nullptr : v8impl::externalReferenceRegistry.data();
     createParams.external_references = externalReferences;
 
     v8::StartupData* snapshotBlob = nullptr;
