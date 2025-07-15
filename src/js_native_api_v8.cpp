@@ -5561,13 +5561,14 @@ JSVM_Status OH_JSVM_RemoveHandlerForGC(JSVM_VM vm,
     if (it == handlers.end()) {
         return JSVM_INVALID_ARG;
     }
+    v8impl::GCHandlerWrapper wraper = *it;
     handlers.erase(it);
     if (triggerTime == JSVM_CB_TRIGGER_BEFORE_GC) {
-        isolate->RemoveGCPrologueCallback(OnBeforeGC, (*it));
+        isolate->RemoveGCPrologueCallback(OnBeforeGC, wraper);
     } else {
-        isolate->RemoveGCEpilogueCallback(OnAfterGC, (*it));
+        isolate->RemoveGCEpilogueCallback(OnAfterGC, wraper);
     }
-    delete (*it);
+    delete wraper;
     return JSVM_OK;
 }
 
@@ -5710,6 +5711,8 @@ JSVM_EXTERN JSVM_Status OH_JSVM_TraceStart(size_t count,
 
     v8::Platform* platform = v8impl::g_platform.get();
     TracingController* controller = static_cast<TracingController*>(platform->GetTracingController());
+    controller->Initialize(nullptr);
+
     v8impl::g_trace_stream.reset(new std::stringstream());
     auto stream = v8impl::g_trace_stream.get();
 
