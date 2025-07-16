@@ -630,8 +630,8 @@ HWTEST_F(JSVMTest, JSVMTraceStop003, TestSize.Level1)
     status = OH_JSVM_TraceStop(OutputStream, nullptr);
     ASSERT_EQ(status, JSVM_INVALID_ARG);
     std::string data;
-    JSVM_Status status = OH_JSVM_TraceStop(OutputStream, (void*)&data);
-    ASSERT_EQ(status, JSVM_INVALID_ARG);
+    status = OH_JSVM_TraceStop(OutputStream, (void*)&data);
+    ASSERT_EQ(status, JSVM_OK);
 }
 
 HWTEST_F(JSVMTest, JSVMTraceStop004, TestSize.Level1)
@@ -641,8 +641,8 @@ HWTEST_F(JSVMTest, JSVMTraceStop004, TestSize.Level1)
     std::string data;
     status = OH_JSVM_TraceStop(nullptr, (void*)&data);
     ASSERT_EQ(status, JSVM_INVALID_ARG);
-    JSVM_Status status = OH_JSVM_TraceStop(OutputStream, (void*)&data);
-    ASSERT_EQ(status, JSVM_INVALID_ARG);
+    status = OH_JSVM_TraceStop(OutputStream, (void*)&data);
+    ASSERT_EQ(status, JSVM_OK);
 }
 
 HWTEST_F(JSVMTest, JSVMIsNumberObject001, TestSize.Level1)
