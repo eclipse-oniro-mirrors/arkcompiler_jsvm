@@ -5562,14 +5562,14 @@ JSVM_Status OH_JSVM_RemoveHandlerForGC(JSVM_VM vm,
     if (it == handlers.end()) {
         return JSVM_INVALID_ARG;
     }
-    v8impl::GCHandlerWrapper wraper = *it;
+    v8impl::GCHandlerWrapper* wrapper = *it;
     handlers.erase(it);
     if (triggerTime == JSVM_CB_TRIGGER_BEFORE_GC) {
-        isolate->RemoveGCPrologueCallback(OnBeforeGC, wraper);
+        isolate->RemoveGCPrologueCallback(OnBeforeGC, wrapper);
     } else {
-        isolate->RemoveGCEpilogueCallback(OnAfterGC, wraper);
+        isolate->RemoveGCEpilogueCallback(OnAfterGC, wrapper);
     }
-    delete wraper;
+    delete wrapper;
     return JSVM_OK;
 }
 
