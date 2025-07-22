@@ -4789,6 +4789,7 @@ JSVM_Status OH_JSVM_RetainScript(JSVM_Env env, JSVM_Script script)
 
     jsvmData->taggedPointer = v8::Global<v8::Script>(env->isolate, jsvmData->ToV8Local<v8::Script>(env->isolate));
 
+    env->RetainJsvmData(jsvmData);
     jsvmData->isGlobal = true;
     return ClearLastError(env);
 }
