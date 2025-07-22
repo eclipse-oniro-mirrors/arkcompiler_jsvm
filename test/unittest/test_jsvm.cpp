@@ -1610,3 +1610,25 @@ HWTEST_F(JSVMTest, test_set_debug_option3, TestSize.Level1)
     auto status2 = OH_JSVM_SetDebugOption(env, JSVM_SCOPE_CHECK, false);
     ASSERT_TRUE(status2 == JSVM_OK);
 }
+
+HWTEST_F(JSVMTest, JSVMCloseHandleScopeUAF, TestSize.Level1)
+{
+    JSVM_HandleScope handle = nullptr;
+    JSVMTEST_CALL(OH_JSVM_OpenHandleScope(env, &handle));
+
+    JSVM_Value jsSrc = nullptr;
+    JSVMTEST_CALL(OH_JSVM_CreateStringUtf8(env, srcProf.c_str(), srcProf.size(), &jsSrc));
+
+    bool cacheRejected = true;
+    JSVM_Script script = nullptr;
+    JSVMTEST_CALL(OH_JSVM_CompileScript(env, jsSrc, nullptr, 0, true, &cacheRejected, &script));
+
+    JSVMTEST_CALL(OH_JSVM_RetainScript(env, script));
+    JSVMTEST_CALL(OH_JSVM_ReleaseScript(env, script));
+
+    const int length = 32;
+    char* data = new((char *)script) char[length];
+    memset(data, 0, length);
+
+    JSVMTEST_CALL(OH_JSVM_CloseHandleScope(env, handle));
+}

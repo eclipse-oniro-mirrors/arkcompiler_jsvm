@@ -16,6 +16,7 @@
 #ifndef JSVM_ENV_H
 #define JSVM_ENV_H
 #include <functional>
+#include <list>
 #include <mutex>
 #include <vector>
 
@@ -133,25 +134,37 @@ public:
     template<typename T>
     JSVM_Script_Data__* NewJsvmData(T srcPtr, JSVM_Script_Data__::DataType type = JSVM_Script_Data__::kJsvmScript)
     {
-        if (dataStack.empty() || openHandleScopes != dataStack.top().first) {
-            dataStack.emplace(openHandleScopes, std::vector<JSVM_Script_Data__*>());
+        if (dataStack.size() == 0 || openHandleScopes != dataStack.back().first) {
+            dataStack.emplace_back(openHandleScopes, std::list<JSVM_Script_Data__*>());
         }
         auto newData = new JSVM_Script_Data__(srcPtr, false, type);
-        dataStack.top().second.push_back(newData);
+        dataStack.back().second.push_back(newData);
         return newData;
     }
 
     void ReleaseJsvmData()
     {
-        if (dataStack.empty() || openHandleScopes != dataStack.top().first) {
+        if (dataStack.size() == 0 || openHandleScopes != dataStack.back().first) {
             return;
         }
-        for (auto data : dataStack.top().second) {
+        for (auto data : dataStack.back().second) {
             if (!data->isGlobal) {
                 delete data;
             }
         }
-        dataStack.pop();
+        dataStack.pop_back();
+    }
+
+    void RetainJsvmData(JSVM_Script_Data__* data)
+    {
+        for (auto iter = dataStack.rbegin(); iter != dataStack.rend(); ++iter) {
+            auto& current = iter->second;
+            auto globalData = std::find(current.begin(), current.end(), data);
+            if (globalData != current.end()) {
+                current.erase(globalData);
+                break;
+            }
+        }
     }
 
     void CreateScopeTracker()
@@ -183,7 +196,7 @@ public:
     JSVM_ExtendedErrorInfo lastError;
 
     // Store v8::Data
-    std::stack<std::pair<int, std::vector<JSVM_Script_Data__*>>> dataStack;
+    std::vector<std::pair<int, std::list<JSVM_Script_Data__*>>> dataStack;
 
     // Store external instance data
     void* instanceData = nullptr;
