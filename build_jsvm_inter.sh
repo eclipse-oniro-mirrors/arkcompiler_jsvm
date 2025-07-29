@@ -95,7 +95,7 @@ do_strip() {
     ${OBJCOPY} -S --remove-section .gdb_index --remove-section .comment \
             --keep-symbols=${keep_path} ${debug_path} ${mini_debug_path}
 
-    ${STRIP} --strip-all --keep-section=.comment ${binary}
+    ${STRIP} --strip-all ${binary}
 
     xz ${mini_debug_path}
     ${OBJCOPY} --add-section .gnu_debugdata=${mini_debug_path}.xz ${binary}
