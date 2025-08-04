@@ -1529,6 +1529,11 @@ JSVM_Status OH_JSVM_RunScript(JSVM_Env env, JSVM_Script script, JSVM_Value* resu
     CHECK_ARG(env, script);
     CHECK_ARG(env, result);
 
+    if (OHOS_SELECT(!platform::ohos::InJitMode(), false)) {
+        LOG(Info) << "Run OH_JSVM_RunScript may failed: The application does not have ACL certificate authorization "
+                     "or has enabled the Secure Shield Mode.";
+    }
+
     auto jsvmData = reinterpret_cast<JSVM_Script_Data__*>(script);
     auto v8script = jsvmData->ToV8Local<v8::Script>(env->isolate);
     auto scriptResult = v8script->Run(env->context());
@@ -4890,7 +4895,11 @@ JSVM_Status OH_JSVM_CompileWasmModule(JSVM_Env env,
 {
     JSVM_PREAMBLE(env);
     // add jit mode check
-    RETURN_STATUS_IF_FALSE(env, OHOS_SELECT(platform::ohos::InJitMode(), true), JSVM_JIT_MODE_EXPECTED);
+    if (OHOS_SELECT(!platform::ohos::InJitMode(), false)) {
+        LOG(Error) << "Run OH_JSVM_CompileWasmModule failed: The application does not have ACL certificate "
+                      "authorization or has enabled the Secure Shield Mode.";
+        return SetLastError(env, JSVM_JIT_MODE_EXPECTED);
+    }
     CHECK_ARG(env, wasmBytecode);
     RETURN_STATUS_IF_FALSE(env, wasmBytecodeLength > 0, JSVM_INVALID_ARG);
     v8::MaybeLocal<v8::WasmModuleObject> maybeModule;
@@ -4920,7 +4929,11 @@ JSVM_Status OH_JSVM_CompileWasmFunction(JSVM_Env env,
 {
     JSVM_PREAMBLE(env);
     // add jit mode check
-    RETURN_STATUS_IF_FALSE(env, OHOS_SELECT(platform::ohos::InJitMode(), true), JSVM_JIT_MODE_EXPECTED);
+    if (OHOS_SELECT(!platform::ohos::InJitMode(), false)) {
+        LOG(Error) << "Run OH_JSVM_CompileWasmFunction failed: The application does not have ACL certificate "
+                      "authorization or has enabled the Secure Shield Mode.";
+        return SetLastError(env, JSVM_JIT_MODE_EXPECTED);
+    }
     CHECK_ARG(env, wasmModule);
     CHECK_SCOPE(env, wasmModule);
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(wasmModule);
@@ -4963,7 +4976,11 @@ JSVM_Status OH_JSVM_CreateWasmCache(JSVM_Env env, JSVM_Value wasmModule, const u
 {
     JSVM_PREAMBLE(env);
     // add jit mode check
-    RETURN_STATUS_IF_FALSE(env, OHOS_SELECT(platform::ohos::InJitMode(), true), JSVM_JIT_MODE_EXPECTED);
+    if (OHOS_SELECT(!platform::ohos::InJitMode(), false)) {
+        LOG(Error) << "Run OH_JSVM_CreateWasmCache failed: The application does not have ACL certificate authorization"
+                      " or has enabled the Secure Shield Mode.";
+        return SetLastError(env, JSVM_JIT_MODE_EXPECTED);
+    }
     CHECK_ARG(env, wasmModule);
     CHECK_ARG(env, data);
     CHECK_ARG(env, length);
