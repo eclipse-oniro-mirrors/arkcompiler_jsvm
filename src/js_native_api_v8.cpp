@@ -613,13 +613,17 @@ public:
             v8impl::UserReference* reference =
                 reinterpret_cast<v8impl::UserReference*>(propertyHandler->namedPropertyData);
             innerData = v8impl::JsValueFromV8LocalValue(reference->Get());
+            ADD_VAL_TO_SCOPE_CHECK(env, innerData);
         }
 
         bool exceptionOccurred = false;
         JSVM_Value result = nullptr;
         JSVM_Value name = JsValueFromV8LocalValue(property);
+        ADD_VAL_TO_SCOPE_CHECK(env, name);
         JSVM_Value v8Value = JsValueFromV8LocalValue(value);
+        ADD_VAL_TO_SCOPE_CHECK(env, v8Value);
         JSVM_Value thisArg = this->This();
+        ADD_VAL_TO_SCOPE_CHECK(env, thisArg);
         env->CallIntoModule(
             [&](JSVM_Env env) {
                 if (setterCb) {
@@ -648,13 +652,17 @@ public:
             v8impl::UserReference* reference =
                 reinterpret_cast<v8impl::UserReference*>(propertyHandler->indexedPropertyData);
             innerData = v8impl::JsValueFromV8LocalValue(reference->Get());
+            ADD_VAL_TO_SCOPE_CHECK(env, innerData);
         }
 
         bool exceptionOccurred = false;
         JSVM_Value result = nullptr;
         JSVM_Value v8Index = JsValueFromV8LocalValue(v8::Integer::NewFromUnsigned(env->isolate, index));
+        ADD_VAL_TO_SCOPE_CHECK(env, v8Index);
         JSVM_Value v8Value = JsValueFromV8LocalValue(value);
+        ADD_VAL_TO_SCOPE_CHECK(env, v8Value);
         JSVM_Value thisArg = this->This();
+        ADD_VAL_TO_SCOPE_CHECK(env, thisArg);
         env->CallIntoModule(
             [&](JSVM_Env env) {
                 if (indexSetterCb) {
@@ -685,11 +693,14 @@ protected:
             v8impl::UserReference* reference =
                 reinterpret_cast<v8impl::UserReference*>(propertyHandler->namedPropertyData);
             innerData = v8impl::JsValueFromV8LocalValue(reference->Get());
+            ADD_VAL_TO_SCOPE_CHECK(env, innerData);
         }
         bool exceptionOccurred = false;
         JSVM_Value result = nullptr;
         JSVM_Value name = JsValueFromV8LocalValue(property);
+        ADD_VAL_TO_SCOPE_CHECK(env, name);
         JSVM_Value thisArg = this->This();
+        ADD_VAL_TO_SCOPE_CHECK(env, thisArg);
         env->CallIntoModule(
             [&](JSVM_Env env) {
                 if (getterCb) {
@@ -719,12 +730,15 @@ protected:
             v8impl::UserReference* reference =
                 reinterpret_cast<v8impl::UserReference*>(propertyHandler->namedPropertyData);
             innerData = v8impl::JsValueFromV8LocalValue(reference->Get());
+            ADD_VAL_TO_SCOPE_CHECK(env, innerData);
         }
 
         bool exceptionOccurred = false;
         JSVM_Value result = nullptr;
         JSVM_Value name = JsValueFromV8LocalValue(property);
+        ADD_VAL_TO_SCOPE_CHECK(env, name);
         JSVM_Value thisArg = this->This();
+        ADD_VAL_TO_SCOPE_CHECK(env, thisArg);
         env->CallIntoModule(
             [&](JSVM_Env env) {
                 if (deleterCb) {
@@ -756,11 +770,13 @@ protected:
             v8impl::UserReference* reference =
                 reinterpret_cast<v8impl::UserReference*>(propertyHandler->namedPropertyData);
             innerData = v8impl::JsValueFromV8LocalValue(reference->Get());
+            ADD_VAL_TO_SCOPE_CHECK(env, innerData);
         }
 
         bool exceptionOccurred = false;
         JSVM_Value result = nullptr;
         JSVM_Value thisArg = this->This();
+        ADD_VAL_TO_SCOPE_CHECK(env, thisArg);
         env->CallIntoModule(
             [&](JSVM_Env env) {
                 if (enumeratorCb) {
@@ -792,12 +808,15 @@ protected:
             v8impl::UserReference* reference =
                 reinterpret_cast<v8impl::UserReference*>(propertyHandler->indexedPropertyData);
             innerData = v8impl::JsValueFromV8LocalValue(reference->Get());
+            ADD_VAL_TO_SCOPE_CHECK(env, innerData);
         }
 
         JSVM_Value result = nullptr;
         bool exceptionOccurred = false;
         JSVM_Value v8Index = JsValueFromV8LocalValue(v8::Integer::NewFromUnsigned(env->isolate, index));
+        ADD_VAL_TO_SCOPE_CHECK(env, v8Index);
         JSVM_Value thisArg = this->This();
+        ADD_VAL_TO_SCOPE_CHECK(env, thisArg);
         env->CallIntoModule(
             [&](JSVM_Env env) {
                 if (indexGetterCb) {
@@ -827,12 +846,15 @@ protected:
             v8impl::UserReference* reference =
                 reinterpret_cast<v8impl::UserReference*>(propertyHandler->indexedPropertyData);
             innerData = v8impl::JsValueFromV8LocalValue(reference->Get());
+            ADD_VAL_TO_SCOPE_CHECK(env, innerData);
         }
 
         bool exceptionOccurred = false;
         JSVM_Value result = nullptr;
         JSVM_Value v8Index = JsValueFromV8LocalValue(v8::Integer::NewFromUnsigned(env->isolate, index));
+        ADD_VAL_TO_SCOPE_CHECK(env, v8Index);
         JSVM_Value thisArg = this->This();
+        ADD_VAL_TO_SCOPE_CHECK(env, thisArg);
         env->CallIntoModule(
             [&](JSVM_Env env) {
                 if (indexDeleterCb) {
@@ -864,11 +886,13 @@ protected:
             v8impl::UserReference* reference =
                 reinterpret_cast<v8impl::UserReference*>(propertyHandler->indexedPropertyData);
             innerData = v8impl::JsValueFromV8LocalValue(reference->Get());
+            ADD_VAL_TO_SCOPE_CHECK(env, innerData);
         }
 
         bool exceptionOccurred = false;
         JSVM_Value result = nullptr;
         JSVM_Value thisArg = this->This();
+        ADD_VAL_TO_SCOPE_CHECK(env, thisArg);
         env->CallIntoModule(
             [&](JSVM_Env env) {
                 if (enumeratorCb) {
@@ -2888,6 +2912,7 @@ JSVM_Status OH_JSVM_GetCbInfo(JSVM_Env env,             // [in] JSVM environment
     }
     if (thisArg != nullptr) {
         *thisArg = info->This();
+        ADD_VAL_TO_SCOPE_CHECK(env, *thisArg);
     }
     if (data != nullptr) {
         *data = info->Data();
