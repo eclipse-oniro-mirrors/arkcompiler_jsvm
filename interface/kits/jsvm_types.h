@@ -429,7 +429,7 @@ typedef enum {
 } JSVM_CompileOptionId;
 
 /**
- * @brief Heap statisics.
+ * @brief Heap statistics.
  *
  * @since 12
  */
