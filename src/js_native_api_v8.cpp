@@ -19,6 +19,7 @@
 #include <cmath>
 #include <cstring>
 #include <list>
+#include <mutex>
 #include <unistd.h>
 
 #include "v8-debug.h"
@@ -244,6 +245,10 @@ static constexpr const char* INTERNAL_TRACE_CATEGORIES[] = {
 constexpr uint32_t DEFAULT_CATEGORY_COUNT = 4;
 static constexpr JSVM_TraceCategory DEFAULT_CATAGORIES[] = { JSVM_TRACE_VM, JSVM_TRACE_EXECUTE, JSVM_TRACE_COMPILE,
                                                              JSVM_TRACE_RUNTIME };
+const std::string jitEventMessage = "The application does not have ACL certificate authorization or has enable "
+                                    "the Sercure Shield Mode. The WASM capability will be disabled, and the "
+                                    "performance of JS execution will degrade. For details, see "
+                                    "\"Requesting Restricted Permission\" in the developer documentation.";
 
 static inline v8::ArrayBuffer::Allocator* GetOrCreateDefaultArrayBufferAllocator()
 {
@@ -1064,7 +1069,7 @@ JSVM_Status OH_JSVM_Init(const JSVM_InitOptions* options)
     }
     initialized.store(true);
 
-    OHOS_CALL(platform::ohos::WriteHisysevent());
+    OHOS_CALL(platform::ohos::WriteHisysevent("Init jsvm."));
     OHOS_CALL(platform::ohos::ReportKeyThread(platform::ohos::ThreadRole::IMPORTANT_DISPLAY));
     v8::V8::InitializePlatform(v8impl::g_platform.get());
 
@@ -1554,8 +1559,12 @@ JSVM_Status OH_JSVM_RunScript(JSVM_Env env, JSVM_Script script, JSVM_Value* resu
     CHECK_ARG(env, result);
 
     if (OHOS_SELECT(!platform::ohos::InJitMode(), false)) {
-        LOG(Info) << "Run OH_JSVM_RunScript may failed: The application does not have ACL certificate authorization "
-                     "or has enabled the Secure Shield Mode.";
+        static std::once_flag jitCheckFlag;
+        std::call_once(jitCheckFlag, []() {
+            LOG(Info) << "Run OH_JSVM_RunScript may failed: The application does not have ACL certificate "
+                         "authorization or has enabled the Secure Shield Mode.";
+            OHOS_CALL(platform::ohos::WriteHisysevent(v8impl::jitEventMessage));
+        });
     }
 
     auto jsvmData = reinterpret_cast<JSVM_Script_Data__*>(script);
@@ -4923,6 +4932,7 @@ JSVM_Status OH_JSVM_CompileWasmModule(JSVM_Env env,
     if (OHOS_SELECT(!platform::ohos::InJitMode(), false)) {
         LOG(Error) << "Run OH_JSVM_CompileWasmModule failed: The application does not have ACL certificate "
                       "authorization or has enabled the Secure Shield Mode.";
+        OHOS_CALL(platform::ohos::WriteHisysevent(v8impl::jitEventMessage));
         return SetLastError(env, JSVM_JIT_MODE_EXPECTED);
     }
     CHECK_ARG(env, wasmBytecode);
@@ -4957,6 +4967,7 @@ JSVM_Status OH_JSVM_CompileWasmFunction(JSVM_Env env,
     if (OHOS_SELECT(!platform::ohos::InJitMode(), false)) {
         LOG(Error) << "Run OH_JSVM_CompileWasmFunction failed: The application does not have ACL certificate "
                       "authorization or has enabled the Secure Shield Mode.";
+        OHOS_CALL(platform::ohos::WriteHisysevent(v8impl::jitEventMessage));
         return SetLastError(env, JSVM_JIT_MODE_EXPECTED);
     }
     CHECK_ARG(env, wasmModule);
@@ -5004,6 +5015,7 @@ JSVM_Status OH_JSVM_CreateWasmCache(JSVM_Env env, JSVM_Value wasmModule, const u
     if (OHOS_SELECT(!platform::ohos::InJitMode(), false)) {
         LOG(Error) << "Run OH_JSVM_CreateWasmCache failed: The application does not have ACL certificate authorization"
                       " or has enabled the Secure Shield Mode.";
+        OHOS_CALL(platform::ohos::WriteHisysevent(v8impl::jitEventMessage));
         return SetLastError(env, JSVM_JIT_MODE_EXPECTED);
     }
     CHECK_ARG(env, wasmModule);

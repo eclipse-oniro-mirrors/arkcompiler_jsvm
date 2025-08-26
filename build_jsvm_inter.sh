@@ -130,7 +130,7 @@ do_env() {
     # alway rebuild
     mkdir -p ${workdir}
 
-    argurment+=" -D__MUSL__  -D_LIBCPP_HAS_MUSL_LIBC -DOHOS_JS_ENGINE"
+    argurment+=" -D__MUSL__  -D_LIBCPP_HAS_MUSL_LIBC -DOHOS_JS_ENGINE -DENABLE_HISYSEVENT"
     argurment+=" -fstack-protector-strong"
     argurment+=" -Wl,-z,noexecstack"
     argurment+=" -Wl,-z,relro"
