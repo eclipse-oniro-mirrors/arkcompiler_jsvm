@@ -34,7 +34,7 @@ void ReportKeyThread(ThreadRole role);
 
 void SetSecurityMode();
 
-void WriteHisysevent();
+void WriteHisysevent(const std::string& message);
 
 bool InJitMode();
 } // namespace ohos
