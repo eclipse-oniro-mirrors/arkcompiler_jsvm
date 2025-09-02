@@ -1550,7 +1550,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_GetValueInt64(JSVM_Env env, JSVM_Value value, in
  * @param bufsize: Size of the destination buffer. When this value is insufficient, the returned string
  * is truncated and null-terminated.
  * @param result: Number of bytes copied into the buffer, excluding the null terminator.
- * @return Returns JSVM_OK if the API succeeded. If a non-number JSVM_Value is passed in JSVM_NUMBER_EXPECTED.
+ * @return Returns JSVM_OK if the API succeeded. If a non-string JSVM_Value is passed in JSVM_STRING_EXPECTED.
  * @since 11
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_GetValueStringLatin1(JSVM_Env env,
@@ -1569,7 +1569,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_GetValueStringLatin1(JSVM_Env env,
  * @param bufsize: Size of the destination buffer. When this value is insufficient, the returned
  * string is truncated and null-terminated.
  * @param result: Number of bytes copied into the buffer, excluding the null terminator.
- * @return Returns JSVM_OK if the API succeeded. If a non-number JSVM_Value is passed in JSVM_NUMBER_EXPECTED.
+ * @return Returns JSVM_OK if the API succeeded. If a non-string JSVM_Value is passed in JSVM_STRING_EXPECTED.
  * @since 11
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_GetValueStringUtf8(JSVM_Env env,
@@ -1588,7 +1588,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_GetValueStringUtf8(JSVM_Env env,
  * @param bufsize: Size of the destination buffer. When this value is insufficient,
  * the returned string is truncated and null-terminated.
  * @param result: Number of 2-byte code units copied into the buffer, excluding the null terminator.
- * @return Returns JSVM_OK if the API succeeded. If a non-number JSVM_Value is passed in JSVM_NUMBER_EXPECTED.
+ * @return Returns JSVM_OK if the API succeeded. If a non-string JSVM_Value is passed in JSVM_STRING_EXPECTED.
  * @since 11
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_GetValueStringUtf16(JSVM_Env env,
