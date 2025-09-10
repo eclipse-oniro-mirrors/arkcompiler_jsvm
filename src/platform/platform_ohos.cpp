@@ -144,7 +144,7 @@ namespace ohos {
 #define JITFORT_QUERY_ENCAPS 'E'
 #define HM_PR_SET_JITFORT 0x6a6974
 
-bool ProcessBundleName(std::string& bundleName);
+bool ProcessBundleNameParam(std::string& bundleName);
  
 bool InJitMode()
 {
@@ -254,53 +254,72 @@ bool LoadStringFromFile(const std::string& filePath, std::string& content)
     return true;
 }
 
-bool ProcessBundleName(std::string& bundleName)
+std::unique_ptr<char[]> ProcessBundleNameParam()
 {
     int pid = getprocpid();
-    std::string filePath = "/proc/" + std::to_string(pid) + "/cmdline";
-    if (!LoadStringFromFile(filePath, bundleName)) {
-        return false;
-    }
-    if (bundleName.empty()) {
-        return false;
-    }
-    auto pos = bundleName.find(":");
-    if (pos != std::string::npos) {
-        bundleName = bundleName.substr(0, pos);
-    }
-    bundleName = bundleName.substr(0, strlen(bundleName.c_str()));
-    return true;
-}
-
-void WriteHisysevent(const std::string& message)
-{
-#ifdef ENABLE_HISYSEVENT
-    static std::string bundleName = "";
+    static std::string bundleName;
     if (bundleName == "") {
-        if (!ProcessBundleName(bundleName)) {
+        std::string filePath = "/proc/" + std::to_string(pid) + "/cmdline";
+        if (LoadStringFromFile(filePath, bundleName) && !bundleName.empty()) {
+            auto pos = bundleName.find(":");
+            if (pos != std::string::npos) {
+                bundleName = bundleName.substr(0, pos);
+            }
+        } else {
             bundleName = "INVALID_BUNDLE_NAME";
         }
     }
     std::unique_ptr<char[]> name = std::make_unique<char[]>(bundleName.size() + 1);
-    strcpy_s(name.get(), bundleName.size() + 1, bundleName.c_str());
+    errno_t ret = strcpy_s(name.get(), bundleName.size() + 1, bundleName.c_str());
+    if (ret != EOK) {
+        name.get()[0] = '\0';
+    }
+    return std::move(name);
+}
+
+void WriteHisysevent(HiSysEventParam* params, int size)
+{
+    OH_HiSysEvent_Write(OHOS::HiviewDFX::HiSysEvent::Domain::JSVM_RUNTIME, "APP_STATS",
+                        HiSysEventEventType::HISYSEVENT_STATISTIC,
+                        params, size);
+}
+
+void WriteJSVMInitToHisysevent()
+{
+#ifdef ENABLE_HISYSEVENT
+    std::unique_ptr<char[]> name = ProcessBundleNameParam();
     HiSysEventParam param = {
         .name = "BUNDLE_NAME",
         .t = HISYSEVENT_STRING,
         .v = { .s = name.get() },
         .arraySize = 0,
     };
-    std::unique_ptr<char[]> eventMessage = std::make_unique<char[]>(message.size() + 1);
-    strcpy_s(eventMessage.get(), message.size() + 1, message.c_str());
-    HiSysEventParam messageParam = {
-        .name = "MESSAGE",
+    HiSysEventParam params[] = { param };
+    WriteHisysevent(params, sizeof(params) / sizeof(params[0]));
+#endif
+}
+
+void WriteJitBlockedToHisysevent()
+{
+#ifdef ENABLE_HISYSEVENT
+    static bool blockHasWritten = false;
+    if (blockHasWritten) { return; }
+    blockHasWritten = true;
+    std::unique_ptr<char[]> name = ProcessBundleNameParam();
+    HiSysEventParam param = {
+        .name = "BUNDLE_NAME",
         .t = HISYSEVENT_STRING,
-        .v = { .s = eventMessage.get() },
+        .v = { .s = name.get() },
         .arraySize = 0,
     };
-    HiSysEventParam params[] = { param, messageParam };
-    OH_HiSysEvent_Write(OHOS::HiviewDFX::HiSysEvent::Domain::JSVM_RUNTIME, "APP_STATS",
-                        HiSysEventEventType::HISYSEVENT_STATISTIC,
-                        params, sizeof(params) / sizeof(params[0]));
+    HiSysEventParam runJitParam = {
+        .name = "IF_JIT_BLOCKED",
+        .t = HISYSEVENT_BOOL,
+        .v = { .b = true },
+        .arraySize = 0,
+    };
+    HiSysEventParam params[] = { param, runJitParam };
+    WriteHisysevent(params, sizeof(params) / sizeof(params[0]));
 #endif
 }
 } // namespace ohos
