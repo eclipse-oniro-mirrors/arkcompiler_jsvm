@@ -272,15 +272,35 @@ bool ProcessBundleName(std::string& bundleName)
     return true;
 }
 
-void WriteHisysevent()
+void WriteHisysevent(const std::string& message)
 {
 #ifdef ENABLE_HISYSEVENT
-    std::string bundleName;
-    if (!ProcessBundleName(bundleName)) {
-        bundleName = "INVALID_BUNDLE_NAME";
+    static std::string bundleName = "";
+    if (bundleName == "") {
+        if (!ProcessBundleName(bundleName)) {
+            bundleName = "INVALID_BUNDLE_NAME";
+        }
     }
-    HiSysEventWrite(OHOS::HiviewDFX::HiSysEvent::Domain::JSVM_RUNTIME, "APP_STATS",
-                    OHOS::HiviewDFX::HiSysEvent::EventType::STATISTIC, "BUNDLE_NAME", bundleName);
+    std::unique_ptr<char[]> name = std::make_unique<char[]>(bundleName.size() + 1);
+    strcpy_s(name.get(), bundleName.size() + 1, bundleName.c_str());
+    HiSysEventParam param = {
+        .name = "BUNDLE_NAME",
+        .t = HISYSEVENT_STRING,
+        .v = { .s = name.get() },
+        .arraySize = 0,
+    };
+    std::unique_ptr<char[]> eventMessage = std::make_unique<char[]>(message.size() + 1);
+    strcpy_s(eventMessage.get(), message.size() + 1, message.c_str());
+    HiSysEventParam messageParam = {
+        .name = "MESSAGE",
+        .t = HISYSEVENT_STRING,
+        .v = { .s = eventMessage.get() },
+        .arraySize = 0,
+    };
+    HiSysEventParam params[] = { param, messageParam };
+    OH_HiSysEvent_Write(OHOS::HiviewDFX::HiSysEvent::Domain::JSVM_RUNTIME, "APP_STATS",
+                        HiSysEventEventType::HISYSEVENT_STATISTIC,
+                        params, sizeof(params) / sizeof(params[0]));
 #endif
 }
 } // namespace ohos
