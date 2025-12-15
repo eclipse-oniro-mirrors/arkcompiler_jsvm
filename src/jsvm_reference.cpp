@@ -13,35 +13,10 @@
  * limitations under the License.
  */
 
-#include "jsvm_reference.h"
-
 #include "js_native_api_v8.h"
+#include "jsvm_reference-inl.h"
 
 namespace v8impl {
-namespace {
-// In JavaScript, weak references can be created for object types (Object,
-// Function, and external Object) and for local symbols that are created with
-// the `Symbol` function call. Global symbols created with the `Symbol.for`
-// method cannot be weak references because they are never collected.
-// Currently, V8 has no API to detect if a symbol is local or global.
-// Until we have a V8 API for it, we consider that all symbols can be weak.
-inline bool CanBeHeldWeakly(v8::Local<v8::Value> value)
-{
-    return value->IsObject() || value->IsSymbol();
-}
-} // namespace
-
-// RefTracker
-inline void RefTracker::Link(RefList* list)
-{
-    DCHECK(list != nullptr);
-    prev = list;
-    next = list->next;
-    if (next != nullptr) {
-        next->prev = this;
-    }
-    list->next = this;
-}
 
 void RefTracker::FinalizeAll(RefList* list)
 {
@@ -71,7 +46,7 @@ UserReference* UserReference::NewData(JSVM_Env env, v8::Local<v8::Data> value, u
 }
 
 UserReference::UserReference(JSVM_Env env, v8::Local<v8::Data> value, bool isValue, uint32_t initialRefcount)
-    : persistent(env->isolate, value), isValue(isValue), env(env), refcount(initialRefcount),
+    : persistent(env->isolate, value), env(env), refcount(initialRefcount), isValue(isValue),
       canBeWeak(isValue && CanBeHeldWeakly(value.As<v8::Value>()))
 {
     if (refcount == 0) {
@@ -91,64 +66,6 @@ void UserReference::Finalize()
 {
     persistent.Reset();
     Unlink();
-}
-
-v8::Local<v8::Value> UserReference::Get()
-{
-    DCHECK(isValue);
-    if (persistent.IsEmpty()) {
-        return v8::Local<v8::Value>();
-    } else {
-        return v8::Local<v8::Data>::New(env->isolate, persistent).As<v8::Value>();
-    }
-}
-
-v8::Local<v8::Data> UserReference::GetData()
-{
-    if (persistent.IsEmpty()) {
-        return v8::Local<v8::Data>();
-    } else {
-        return v8::Local<v8::Data>::New(env->isolate, persistent);
-    }
-}
-
-void UserReference::SetWeak()
-{
-    if (canBeWeak) {
-        persistent.SetWeak();
-    } else {
-        persistent.Reset();
-    }
-}
-
-uint32_t UserReference::Ref()
-{
-    // If persistent is cleared by GC, return 0 unconditionally.
-    if (persistent.IsEmpty()) {
-        return 0;
-    }
-
-    if (++refcount == 1) {
-        // If persistent can not be weak, it will be cleared in SetWeak().
-        DCHECK(canBeWeak);
-        persistent.ClearWeak();
-    }
-
-    return refcount;
-}
-
-uint32_t UserReference::Unref()
-{
-    // If persistent is cleared by GC, return 0 unconditionally.
-    if (persistent.IsEmpty() || refcount == 0) {
-        return 0;
-    }
-
-    if (--refcount == 0) {
-        SetWeak();
-    }
-
-    return refcount;
 }
 
 uint32_t UserReference::RefCount()
