@@ -35,6 +35,8 @@ void ReportKeyThread(ThreadRole role);
 void SetSecurityMode();
 
 void WriteHisysevent();
+
+bool InJitMode();
 } // namespace ohos
 } // namespace platform
 #endif

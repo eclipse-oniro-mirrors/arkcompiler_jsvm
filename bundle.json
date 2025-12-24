@@ -51,7 +51,9 @@
                     "name": "//arkcompiler/jsvm:libjsvm"
                 }
             ],
-            "test": []
+            "test": [
+                "//arkcompiler/jsvm/test/unittest:jsvm_unittest"
+            ]
         }
     }
 }

@@ -14,6 +14,7 @@
  */
 
 #include "jsvm_env.h"
+#include "jsvm_reference-inl.h"
 
 #include "libplatform/libplatform.h"
 

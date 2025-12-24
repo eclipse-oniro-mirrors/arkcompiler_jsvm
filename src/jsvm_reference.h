@@ -37,17 +37,7 @@ protected:
 
     inline void Link(RefList* list);
 
-    inline void Unlink()
-    {
-        if (prev != nullptr) {
-            prev->next = next;
-        }
-        if (next != nullptr) {
-            next->prev = prev;
-        }
-        prev = nullptr;
-        next = nullptr;
-    }
+    inline void Unlink();
 
 private:
     RefList* next;
@@ -68,8 +58,8 @@ public:
     uint32_t RefCount();
 
     // Get v8::Local value
-    v8::Local<v8::Value> Get();
-    v8::Local<v8::Data> GetData();
+    inline v8::Local<v8::Value> Get();
+    inline v8::Local<v8::Data> GetData();
 
     bool IsValue()
     {
@@ -86,9 +76,9 @@ private:
 
 private:
     v8impl::Persistent<v8::Data> persistent;
-    bool isValue;
     JSVM_Env env;
     uint32_t refcount;
+    bool isValue;
     bool canBeWeak;
 };
 

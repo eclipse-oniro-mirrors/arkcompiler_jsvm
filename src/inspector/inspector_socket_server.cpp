@@ -25,6 +25,7 @@
 #include <string>
 #include <unistd.h>
 
+#include "jsvm_dfx.h"
 #include "jsvm_version.h"
 #include "uv.h"
 #include "v8_inspector_protocol_json.h"
@@ -327,6 +328,7 @@ SocketSession* InspectorSocketServer::Session(int sessionId)
 void InspectorSocketServer::SessionStarted(int sessionId, const std::string& targetId, const std::string& wsKey)
 {
     SocketSession* session = Session(sessionId);
+    DCHECK(session != nullptr);
     if (!TargetExists(targetId)) {
         session->Decline();
         return;

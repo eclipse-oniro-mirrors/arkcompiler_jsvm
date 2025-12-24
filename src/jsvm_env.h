@@ -158,7 +158,6 @@ public:
     v8impl::Persistent<v8::Context> contextPersistent;
 
     // Error info and execption
-    JSVM_ExtendedErrorInfo lastError;
     v8impl::Persistent<v8::Value> lastException;
 
     // We store references in two different lists, depending on whether they have
@@ -167,6 +166,8 @@ public:
     v8impl::RefList userReferenceList;
     v8impl::RefList finalizerList;
 
+    JSVM_ExtendedErrorInfo lastError;
+    
     // Store v8::Data
     std::stack<std::pair<int, std::vector<JSVM_Script_Data__*>>> dataStack;
 
