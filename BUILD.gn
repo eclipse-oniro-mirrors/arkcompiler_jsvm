@@ -59,6 +59,35 @@ action("copy_llhttp") {
   ]
 }
 
+action("copy_zlib") {
+  script = "copy_zlib.sh"
+  outputs = [
+    "$target_gen_dir/zlib/adler32.c",
+    "$target_gen_dir/zlib/compress.c",
+    "$target_gen_dir/zlib/contrib/minizip/ioapi.c",
+    "$target_gen_dir/zlib/contrib/minizip/unzip.c",
+    "$target_gen_dir/zlib/contrib/minizip/zip.c",
+    "$target_gen_dir/zlib/crc32.c",
+    "$target_gen_dir/zlib/deflate.c",
+    "$target_gen_dir/zlib/gzclose.c",
+    "$target_gen_dir/zlib/gzlib.c",
+    "$target_gen_dir/zlib/gzread.c",
+    "$target_gen_dir/zlib/gzwrite.c",
+    "$target_gen_dir/zlib/infback.c",
+    "$target_gen_dir/zlib/inffast.c",
+    "$target_gen_dir/zlib/inflate.c",
+    "$target_gen_dir/zlib/inftrees.c",
+    "$target_gen_dir/zlib/trees.c",
+    "$target_gen_dir/zlib/uncompr.c",
+    "$target_gen_dir/zlib/zutil.c",
+    "$target_gen_dir/zlib/zlib.h",
+  ]
+  args = [
+    "--target_gen_dir",
+    rebase_path("$target_gen_dir"),
+  ]
+}
+
 config("libv8_config") {
   include_dirs = [ "$target_gen_dir/v8-include" ]
 }
@@ -78,6 +107,7 @@ ohos_prebuilt_shared_library("libv8") {
 
 config("llhttp_config") {
   include_dirs = [ "$target_gen_dir/llhttp/include" ]
+  cflags = ["-fno-lto"]
 }
 
 ohos_static_library("llhttp") {
@@ -90,6 +120,47 @@ ohos_static_library("llhttp") {
 
   public_configs = [ ":llhttp_config" ]
 
+  subsystem_name = "arkcompiler"
+  part_name = "jsvm"
+}
+
+config("zlib_config") {
+  include_dirs = [ 
+    "$target_gen_dir/zlib",
+    "$target_gen_dir/zlib/contrib/minizip"
+  ]
+  cflags = [
+    "-fno-lto",
+    "-Wno-incompatible-pointer-types",
+    "-Werror",
+    "-Wno-strict-prototypes",
+    "-Wimplicit-function-declaration",
+  ]
+}
+
+ohos_static_library("libz") {
+  deps = [ ":copy_zlib" ]
+  sources = [
+    "$target_gen_dir/zlib/adler32.c",
+    "$target_gen_dir/zlib/compress.c",
+    "$target_gen_dir/zlib/contrib/minizip/ioapi.c",
+    "$target_gen_dir/zlib/contrib/minizip/unzip.c",
+    "$target_gen_dir/zlib/contrib/minizip/zip.c",
+    "$target_gen_dir/zlib/crc32.c",
+    "$target_gen_dir/zlib/deflate.c",
+    "$target_gen_dir/zlib/gzclose.c",
+    "$target_gen_dir/zlib/gzlib.c",
+    "$target_gen_dir/zlib/gzread.c",
+    "$target_gen_dir/zlib/gzwrite.c",
+    "$target_gen_dir/zlib/infback.c",
+    "$target_gen_dir/zlib/inffast.c",
+    "$target_gen_dir/zlib/inflate.c",
+    "$target_gen_dir/zlib/inftrees.c",
+    "$target_gen_dir/zlib/trees.c",
+    "$target_gen_dir/zlib/uncompr.c",
+    "$target_gen_dir/zlib/zutil.c",
+  ]
+  public_configs = [ ":zlib_config" ]
   subsystem_name = "arkcompiler"
   part_name = "jsvm"
 }
@@ -131,12 +202,12 @@ action("build_libjsvm") {
     "openssl:libcrypto_shared",
     "openssl:libssl_shared",
     "resource_schedule_service:ressched_client",
-    "zlib:libz",
   ]
 
   deps = [
     ":libv8",
     ":llhttp",
+    ":libz",
   ]
   configs = []
   script = "build_jsvm.sh"
