@@ -314,7 +314,10 @@ JSVM_EXTERN JSVM_Status OH_JSVM_GetSymbolIterator(JSVM_Env env, JSVM_Value* resu
  * @brief Init a JavaScript vm.
  *
  * @param  options: The options for initialize the JavaScript VM.
- * @return Returns JSVM_OK if the API succeeded.
+ * @return Returns JSVM funtions result code.
+ *         {@link JSVM_OK } if the API succeeded. \n
+ *         {@link JSVM_GENERIC_FAILURE } If the execution fails, it means that the current process has completed
+ *                                       JSVM initialization and there is no need to repeat the execution.\n
  * @since 11
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_Init(const JSVM_InitOptions* options);
@@ -528,7 +531,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_CompileScriptWithOrigin(JSVM_Env env,
                                                         JSVM_Script* result);
 
 /**
- * @brief This function compiles a string of JavaScript code with the source code information
+ * @brief This function compiles a string of JavaScript code with the compile options
  * and returns the compiled script.
  *
  * @param env: The environment that the JSVM-API call is invoked under.
@@ -536,7 +539,12 @@ JSVM_EXTERN JSVM_Status OH_JSVM_CompileScriptWithOrigin(JSVM_Env env,
  * @param optionCount: length of option array.
  * @param options: Compile options to be passed.
  * @param result: The compiled script.
- * @return Returns JSVM_OK if the API succeeded.
+ * @return Returns JSVM functions result code
+ *         {@link JSVM_OK } if the API succeeded. \n
+ *         {@link JSVM_INVALID_ARG } If the input parameter is invalid.\n
+ *         {@link JSVM_STRING_EXPECTED } If there are parameters passed in that are not of type string.\n
+ *         {@link JSVM_GENERIC_FAILURE } If there is an unknown reason causing execution failure.\n
+ *         {@link JSVM_PENDING_EXCEPTION } If a JS exception occurs during the execution process.\n
  * @since 12
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_CompileScriptWithOptions(JSVM_Env env,
