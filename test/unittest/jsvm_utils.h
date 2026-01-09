@@ -162,6 +162,7 @@ void InstallMyConsoleLog(JSVM_Env env);
 void TryTriggerOOM();
 void TryTriggerFatalError(JSVM_VM vm);
 void TryTriggerGC();
+void TryLowMemoryGC();
 } // namespace jsvm
 
 #endif // JSVM_UTILS_H

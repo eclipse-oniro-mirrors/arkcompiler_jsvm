@@ -1482,7 +1482,7 @@ private:
         v8::ScriptCompiler::kEagerCompile,
         v8::ScriptCompiler::kProduceCompileHints,
         v8::ScriptCompiler::kConsumeCompileHints};
-    
+
     void SetOption(int contentNum)
     {
         if (contentNum >= JSVM_COMPILE_MODE_DEFAULT && contentNum <= JSVM_COMPILE_MODE_CONSUME_COMPILE_PROFILE) {
@@ -1650,6 +1650,10 @@ JSVM_EXTERN JSVM_Status OH_JSVM_GetVMInfo(JSVM_VMInfo* result)
 JSVM_EXTERN JSVM_Status OH_JSVM_MemoryPressureNotification(JSVM_Env env, JSVM_MemoryPressureLevel level)
 {
     CHECK_ENV(env);
+    if (level == JSVM_MEMORY_PRESSURE_LEVEL_LOW_MEMORY) {
+        env->isolate->LowMemoryNotification();
+        return ClearLastError(env);
+    }
     env->isolate->MemoryPressureNotification(v8::MemoryPressureLevel(level));
     return ClearLastError(env);
 }
@@ -2115,7 +2119,7 @@ JSVM_Status OH_JSVM_GetProperty(JSVM_Env env, JSVM_Value object, JSVM_Value key,
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, object);
     CHECK_SCOPE(env, key);
-    
+
     v8::Local<v8::Context> context = env->context();
     v8::Local<v8::Value> k = v8impl::V8LocalValueFromJsValue(key);
     v8::Local<v8::Object> obj;
