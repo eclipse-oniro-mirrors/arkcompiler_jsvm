@@ -524,4 +524,9 @@ void TryTriggerGC()
 {
     JSVMTEST_CALL(OH_JSVM_MemoryPressureNotification(jsvm_env, JSVM_MEMORY_PRESSURE_LEVEL_CRITICAL));
 }
+
+void TryLowMemoryGC()
+{
+    JSVMTEST_CALL(OH_JSVM_MemoryPressureNotification(jsvm_env, JSVM_MEMORY_PRESSURE_LEVEL_LOW_MEMORY));
+}
 } // namespace jsvm

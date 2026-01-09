@@ -1057,6 +1057,7 @@ static bool g_beforeFlag2 = false;
 static bool g_beforeFlag3 = false;
 static bool g_afterFlag1 = false;
 static bool g_afterFlag2 = false;
+static bool g_afterFlag3 = false;
 static int g_nativeValue = 2024;
 
 void OnBeforeGC(JSVM_VM vm, JSVM_GCType gcType, JSVM_GCCallbackFlags flags, void* data)
@@ -1086,6 +1087,11 @@ void OnAfterGC2(JSVM_VM vm, JSVM_GCType gcType, JSVM_GCCallbackFlags flags, void
     g_afterFlag2 = true;
 }
 
+void OnAfterGC3(JSVM_VM vm, JSVM_GCType gcType, JSVM_GCCallbackFlags flags, void* data)
+{
+    g_afterFlag3 = true;
+}
+
 HWTEST_F(JSVMTest, JSVMForwardUsageApplicationScenariosOfGCCB, TestSize.Level1)
 {
     g_beforeFlag1 = false;
@@ -1112,6 +1118,14 @@ HWTEST_F(JSVMTest, JSVMForwardUsageApplicationScenariosOfGCCB, TestSize.Level1)
     ASSERT_FALSE(g_beforeFlag3);
     ASSERT_TRUE(g_afterFlag1);
     ASSERT_FALSE(g_afterFlag2);
+}
+
+HWTEST_F(JSVMTest, JSVMLowMemoryTriggerGC, TestSize.Level1)
+{
+    g_afterFlag3 = false;
+    JSVMTEST_CALL(OH_JSVM_AddHandlerForGC(vm, JSVM_CB_TRIGGER_AFTER_GC, OnAfterGC3, JSVM_GC_TYPE_ALL, NULL));
+    jsvm::TryLowMemoryGC();
+    ASSERT_TRUE(g_afterFlag3);
 }
 
 HWTEST_F(JSVMTest, JSVMNegativeApplicationScenariosOfGCCB, TestSize.Level1)
