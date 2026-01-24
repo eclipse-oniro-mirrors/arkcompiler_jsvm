@@ -1133,7 +1133,10 @@ HWTEST_F(JSVMTest, JSVMNegativeApplicationScenariosOfGCCB, TestSize.Level1)
 static bool g_oomHandlerFinished = false;
 static bool g_fatalHandlerFinished = false;
 static bool g_fatalHandlerFinished2 = false;
-static bool g_promiseRejectFinished = false;
+static bool g_promiseRejectWithNoHandlerFinished = false;
+static bool g_promiseAddHandlerAfterRejectedFinished = false;
+static bool g_promiseRejectAfterResolvedFinished = false;
+static bool g_promiseResolveAfterResolvedFinished = false;
 
 void OnOOMError(const char* location, const char* detail, bool isHeapOOM)
 {
@@ -1158,9 +1161,34 @@ void OnPromiseReject(JSVM_Env env, JSVM_PromiseRejectEvent rejectEvent, JSVM_Val
     ASSERT_TRUE(jsvm::IsObject(rejectInfo));
     auto promise = jsvm::GetProperty(rejectInfo, "promise");
     ASSERT_TRUE(jsvm::IsPromise(promise));
-    auto value = jsvm::GetProperty(rejectInfo, "value");
-    ASSERT_TRUE(jsvm::IsNumber(value));
-    g_promiseRejectFinished = true;
+    if (rejectEvent == JSVM_PROMISE_ADD_HANDLER_AFTER_REJECTED) {
+        auto value = jsvm::GetProperty(rejectInfo, "value");
+        ASSERT_TRUE(jsvm::IsUndefined(value));
+    } else {
+        auto value = jsvm::GetProperty(rejectInfo, "value");
+        ASSERT_TRUE(jsvm::IsNumber(value));
+        const int32_t expectedNumber = 42;
+        int32_t number;
+        OH_JSVM_GetValueInt32(env, value, &number);
+        ASSERT_EQ(number, expectedNumber);
+    }
+
+    switch (rejectEvent) {
+        case JSVM_PROMISE_REJECT_WITH_NO_HANDLER:
+            g_promiseRejectWithNoHandlerFinished = true;
+            break;
+        case JSVM_PROMISE_ADD_HANDLER_AFTER_REJECTED:
+            g_promiseAddHandlerAfterRejectedFinished = true;
+            break;
+        case JSVM_PROMISE_REJECT_AFTER_RESOLVED:
+            g_promiseRejectAfterResolvedFinished = true;
+            break;
+        case JSVM_PROMISE_RESOLVE_AFTER_RESOLVED:
+            g_promiseResolveAfterResolvedFinished = true;
+            break;
+        default:
+            break;
+    }
 }
 
 HWTEST_F(JSVMTest, JSVMOOM, TestSize.Level1)
@@ -1193,14 +1221,19 @@ HWTEST_F(JSVMTest, JSVMFatalError, TestSize.Level1)
 HWTEST_F(JSVMTest, JSVMPromiseReject, TestSize.Level1)
 {
     JSVMTEST_CALL(OH_JSVM_SetHandlerForPromiseReject(vm, OnPromiseReject));
-    jsvm::Run("new Promise((resolve, reject) => { reject(42); })");
+    jsvm::Run("let p = new Promise((resolve, reject) => { reject(42); }); p.catch()");
+    jsvm::Run("new Promise((resolve, reject) => { resolve(41); reject(42); })");
+    jsvm::Run("new Promise((resolve, reject) => { resolve(41); resolve(42); })");
 }
 
 HWTEST_F(JSVMTest, JSVMCheckHandler, TestSize.Level1)
 {
     ASSERT_TRUE(g_oomHandlerFinished);
     ASSERT_TRUE(g_fatalHandlerFinished);
-    ASSERT_TRUE(g_promiseRejectFinished);
+    ASSERT_TRUE(g_promiseRejectWithNoHandlerFinished);
+    ASSERT_TRUE(g_promiseAddHandlerAfterRejectedFinished);
+    ASSERT_TRUE(g_promiseRejectAfterResolvedFinished);
+    ASSERT_TRUE(g_promiseResolveAfterResolvedFinished);
 }
 
 static bool g_callAsFunctionFlag = false;

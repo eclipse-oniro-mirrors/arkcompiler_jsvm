@@ -5693,7 +5693,11 @@ static void OnPromiseReject(v8::PromiseRejectMessage rejectMessage)
     auto strPromise = v8::String::NewFromUtf8(isolate, "promise").ToLocalChecked();
     (void)rejectInfo->Set(context, strPromise, rejectMessage.GetPromise());
     auto strValue = v8::String::NewFromUtf8(isolate, "value").ToLocalChecked();
-    (void)rejectInfo->Set(context, strValue, rejectMessage.GetValue());
+    if (rejectMessage.GetEvent() == v8::kPromiseHandlerAddedAfterReject) {
+        (void)rejectInfo->Set(context, strValue, v8::Undefined(isolate));
+    } else {
+        (void)rejectInfo->Set(context, strValue, rejectMessage.GetValue());
+    }
     JSVM_Value jsvmRejectInfo = v8impl::JsValueFromV8LocalValue(rejectInfo);
     ADD_VAL_TO_SCOPE_CHECK(env, jsvmRejectInfo);
     JSVM_PromiseRejectEvent rejectEvent = JSVM_PROMISE_REJECT_OTHER_REASONS;
