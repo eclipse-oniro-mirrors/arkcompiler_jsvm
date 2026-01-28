@@ -24,7 +24,7 @@ do_patch() {
 
 do_configure() {
     use_libz_inner=0
-    
+
     if [ -f "${LIB_ROOT_DIR}/obj/vendor/${DEPENDENCY_TAG}/foundation/bundlemanager/zlib_override/libz_inner.a" ];then
         use_libz_inner=1
     fi
@@ -131,6 +131,7 @@ do_env() {
     mkdir -p ${workdir}
 
     argurment+=" -D__MUSL__  -D_LIBCPP_HAS_MUSL_LIBC -DOHOS_JS_ENGINE -DENABLE_HISYSEVENT"
+    argurment+=" -DV8_COMPRESS_POINTERS -DV8_COMPRESS_POINTERS_IN_SHARED_CAGE -DV8_31BIT_SMIS_ON_64BIT_ARCH -DV8_HAVE_TARGET_OS -DV8_TARGET_OS_OHOS"
     argurment+=" -fstack-protector-strong"
     argurment+=" -Wl,-z,noexecstack"
     argurment+=" -Wl,-z,relro"
