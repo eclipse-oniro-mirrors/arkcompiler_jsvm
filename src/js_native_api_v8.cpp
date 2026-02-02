@@ -1058,31 +1058,31 @@ v8::Platform* JSVM_Env__::platform()
 
 JSVM_Status OH_JSVM_Init(const JSVM_InitOptions* options)
 {
-    static std::atomic<bool> initialized(false);
-    if (initialized.load()) {
-        return JSVM_GENERIC_FAILURE;
-    }
-    initialized.store(true);
+    static std::once_flag init;
+    bool callInit = false;
+    std::call_once(init, [&callInit, options]() {
+        callInit = true;
 
-    OHOS_CALL(platform::ohos::WriteJSVMInitToHisysevent());
-    OHOS_CALL(platform::ohos::ReportKeyThread(platform::ohos::ThreadRole::IMPORTANT_DISPLAY));
-    v8::V8::InitializePlatform(v8impl::g_platform.get());
+        OHOS_CALL(platform::ohos::WriteJSVMInitToHisysevent());
+        OHOS_CALL(platform::ohos::ReportKeyThread(platform::ohos::ThreadRole::IMPORTANT_DISPLAY));
+        v8::V8::InitializePlatform(v8impl::g_platform.get());
 
-    if (options && options->argc && options->argv) {
-        v8::V8::SetFlagsFromCommandLine(options->argc, options->argv, options->removeFlags);
-    }
-    OHOS_CALL(platform::ohos::SetSecurityMode());
-    v8::V8::Initialize();
-
-    const auto cb = v8impl::FunctionCallbackWrapper::Invoke;
-    v8impl::externalReferenceRegistry.push_back((intptr_t)cb);
-    if (auto p = options ? options->externalReferences : nullptr) {
-        for (; *p != 0; p++) {
-            v8impl::externalReferenceRegistry.push_back(*p);
+        if (options && options->argc && options->argv) {
+            v8::V8::SetFlagsFromCommandLine(options->argc, options->argv, options->removeFlags);
         }
-    }
-    v8impl::externalReferenceRegistry.push_back(0);
-    return JSVM_OK;
+        OHOS_CALL(platform::ohos::SetSecurityMode());
+        v8::V8::Initialize();
+
+        const auto cb = v8impl::FunctionCallbackWrapper::Invoke;
+        v8impl::externalReferenceRegistry.push_back((intptr_t)cb);
+        if (auto p = options ? options->externalReferences : nullptr) {
+            for (; *p != 0; p++) {
+                v8impl::externalReferenceRegistry.push_back(*p);
+            }
+        }
+        v8impl::externalReferenceRegistry.push_back(0);
+    });
+    return callInit ? JSVM_OK : JSVM_GENERIC_FAILURE;
 }
 
 JSVM_Status OH_JSVM_GetVM(JSVM_Env env, JSVM_VM* result)
