@@ -21,6 +21,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "jsvm.h"
@@ -34,6 +35,23 @@
 using namespace std;
 using namespace testing;
 using namespace testing::ext;
+
+HWTEST_F(Test, JSVMInitTest, TestSize.Level1)
+{
+    std::vector<std::thread> task_vector;
+    constexpr int TASK_COUNT = 10;
+    for (int i = 0; i < TASK_COUNT; ++i) {
+        task_vector.emplace_back([]() {
+            OH_JSVM_Init(nullptr);
+            JSVM_VM vm = nullptr;
+            OH_JSVM_CreateVM(nullptr, &vm);
+            OH_JSVM_DestroyVM(vm);
+        });
+    }
+    for (int i = 0; i < TASK_COUNT; ++i) {
+        task_vector[i].join();
+    }
+}
 
 JSVM_Env jsvm_env = nullptr;
 
