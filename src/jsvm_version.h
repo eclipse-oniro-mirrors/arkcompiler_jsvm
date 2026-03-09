@@ -15,6 +15,7 @@
 
 #ifndef JSVM_VERSION_H
 #define JSVM_VERSION_H
+#include <v8-version.h>
 
 // JSVM version
 #define JSVM_MAJOR_VERSION 1
@@ -36,5 +37,7 @@
 
 // JSVM_API_VERSION
 #define JSVM_API_VERSION 9
+
+#define JSVM_V8_NEW_VERSION (V8_MAJOR_VERSION >= 14)
 
 #endif
