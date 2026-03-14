@@ -34,7 +34,11 @@ inline JSVM_Status ClearLastError(JSVM_Env env);
 struct JSVM_Env__ final {
 public:
     explicit JSVM_Env__(v8::Local<v8::Context> context, int32_t apiVersion)
+#if JSVM_V8_NEW_VERSION
+        : isolate(v8::Isolate::GetCurrent()), contextPersistent(isolate, context), apiVersion(apiVersion)
+#else
         : isolate(context->GetIsolate()), contextPersistent(isolate, context), apiVersion(apiVersion)
+#endif
     {
         ClearLastError(this);
     }

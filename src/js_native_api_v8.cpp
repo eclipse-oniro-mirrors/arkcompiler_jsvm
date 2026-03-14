@@ -1177,6 +1177,17 @@ JSVM_Status OH_JSVM_CreateEnv(JSVM_VM vm,
                               JSVM_Env* result)
 {
     auto isolate = reinterpret_cast<v8::Isolate*>(vm);
+#if JSVM_V8_NEW_VERSION
+    auto currentIsolate = v8::Isolate::GetCurrent();
+    v8::Isolate::Scope *tmpScope = nullptr;
+    if (currentIsolate == nullptr) {
+        LOG(Error) << "[OH_JSVM_CreateEnv] There is no JSVM_VMScope";
+        tmpScope = new v8::Isolate::Scope(isolate);
+    } else if (currentIsolate != isolate) {
+        LOG(Error) << "[OH_JSVM_CreateEnv] The input JSVM_VM does not match the current JSVM_VMScope";
+        tmpScope = new v8::Isolate::Scope(isolate);
+    }
+#endif
     auto env = new JSVM_Env__(isolate, JSVM_API_VERSION);
     v8::HandleScope handleScope(isolate);
     auto globalTemplate = v8::ObjectTemplate::New(isolate);
@@ -1226,6 +1237,11 @@ JSVM_Status OH_JSVM_CreateEnv(JSVM_VM vm,
         }
     }
     LOG(Info) << "JSVM Env has been created";
+#if JSVM_V8_NEW_VERSION
+    if (tmpScope != nullptr) {
+        delete tmpScope;
+    }
+#endif
     // The error code is set in constructor function, just return JSVM_OK here.
     return JSVM_OK;
 }
@@ -1252,8 +1268,25 @@ JSVM_EXTERN JSVM_Status OH_JSVM_CreateEnvFromSnapshot(JSVM_VM vm, size_t index, 
 
 JSVM_Status OH_JSVM_DestroyEnv(JSVM_Env env)
 {
+#if JSVM_V8_NEW_VERSION
+    auto isolate = env->isolate;
+    auto currentIsolate = v8::Isolate::GetCurrent();
+    v8::Isolate::Scope *tmpScope = nullptr;
+    if (currentIsolate == nullptr) {
+        LOG(Error) << "[OH_JSVM_DestroyEnv] There is no JSVM_VMScope";
+        tmpScope = new v8::Isolate::Scope(isolate);
+    } else if (currentIsolate != isolate) {
+        LOG(Error) << "[OH_JSVM_DestroyEnv] The input JSVM_VM does not match the current JSVM_VMScope";
+        tmpScope = new v8::Isolate::Scope(isolate);
+    }
+#endif
     env->DeleteMe();
     LOG(Info) << "JSVM Env has been destroyed";
+#if JSVM_V8_NEW_VERSION
+    if (tmpScope != nullptr) {
+        delete tmpScope;
+    }
+#endif
     return JSVM_OK;
 }
 
@@ -1324,7 +1357,11 @@ v8::MaybeLocal<v8::Value> PrepareStackTraceCallback(v8::Local<v8::Context> conte
                                                     v8::Local<v8::Value> error,
                                                     v8::Local<v8::Array> trace)
 {
+#if JSVM_V8_NEW_VERSION
+    auto* isolate = v8::Isolate::GetCurrent();
+#else
     auto* isolate = context->GetIsolate();
+#endif
     v8::TryCatch tryCatch(isolate);
     v8::Local<v8::String> moduleName = v8::String::NewFromUtf8(isolate, "sourcemap").ToLocalChecked();
     v8::Local<v8::String> moduleSourceString =
@@ -1378,7 +1415,11 @@ JSVM_Status OH_JSVM_CompileScriptWithOrigin(JSVM_Env env,
     RETURN_STATUS_IF_FALSE(env, v8Script->IsString(), JSVM_STRING_EXPECTED);
 
     v8::Local<v8::Context> context = env->context();
+#if JSVM_V8_NEW_VERSION
+    auto* isolate = v8::Isolate::GetCurrent();
+#else
     auto* isolate = context->GetIsolate();
+#endif
 
     if (origin->sourceMapUrl) {
         v8impl::SetFileToSourceMapMapping(origin->resourceName, origin->sourceMapUrl);
@@ -1507,7 +1548,11 @@ JSVM_Status OH_JSVM_CompileScriptWithOptions(JSVM_Env env,
     CHECK_SCOPE(env, script);
 
     v8::Local<v8::Context> context = env->context();
+#if JSVM_V8_NEW_VERSION
+    auto* isolate = v8::Isolate::GetCurrent();
+#else
     auto* isolate = context->GetIsolate();
+#endif
     CompileOptionResolver optionResolver(optionCount, options, isolate);
     RETURN_STATUS_IF_FALSE(env, !optionResolver.hasInvalidOption, JSVM_INVALID_ARG);
 
@@ -3314,12 +3359,23 @@ JSVM_Status OH_JSVM_GetValueStringLatin1(JSVM_Env env, JSVM_Value value, char* b
         CHECK_ARG(env, result);
         *result = val.As<v8::String>()->Length();
     } else if (bufsize != 0) {
+#if JSVM_V8_NEW_VERSION
+        uint32_t length =
+            static_cast<uint32_t>(std::min(bufsize - 1, static_cast<size_t>(val.As<v8::String>()->Length())));
+        val.As<v8::String>()->WriteOneByteV2(env->isolate, 0, length, reinterpret_cast<uint8_t*>(buf),
+                                             v8::String::WriteFlags::kNullTerminate);
+#else
         int copied = val.As<v8::String>()->WriteOneByte(env->isolate, reinterpret_cast<uint8_t*>(buf), 0, bufsize - 1,
                                                         v8::String::NO_NULL_TERMINATION);
 
         buf[copied] = '\0';
+#endif
         if (result != nullptr) {
+#if JSVM_V8_NEW_VERSION
+            *result = length;
+#else
             *result = copied;
+#endif
         }
     } else if (result != nullptr) {
         *result = 0;
@@ -3347,11 +3403,20 @@ JSVM_Status OH_JSVM_GetValueStringUtf8(JSVM_Env env, JSVM_Value value, char* buf
 
     if (!buf) {
         CHECK_ARG(env, result);
+#if JSVM_V8_NEW_VERSION
+        *result = val.As<v8::String>()->Utf8LengthV2(env->isolate);
+#else
         *result = val.As<v8::String>()->Utf8Length(env->isolate);
+#endif
     } else if (bufsize != 0) {
+#if JSVM_V8_NEW_VERSION
+        int copied = val.As<v8::String>()->WriteUtf8V2(env->isolate, buf, bufsize - 1,
+                                                       v8::String::WriteFlags::kReplaceInvalidUtf8);
+#else
         int copied =
             val.As<v8::String>()->WriteUtf8(env->isolate, buf, bufsize - 1, nullptr,
                                             v8::String::REPLACE_INVALID_UTF8 | v8::String::NO_NULL_TERMINATION);
+#endif
 
         buf[copied] = '\0';
         if (result != nullptr) {
@@ -3386,12 +3451,23 @@ JSVM_Status OH_JSVM_GetValueStringUtf16(JSVM_Env env, JSVM_Value value, char16_t
         // V8 assumes UTF-16 length is the same as the number of characters.
         *result = val.As<v8::String>()->Length();
     } else if (bufsize != 0) {
+#if JSVM_V8_NEW_VERSION
+        uint32_t length = static_cast<uint32_t>(std::min(bufsize - 1,
+            static_cast<size_t>(val.As<v8::String>()->Length())));
+        val.As<v8::String>()->WriteV2(env->isolate, 0, length, reinterpret_cast<uint16_t*>(buf),
+            v8::String::WriteFlags::kNullTerminate);
+#else
         int copied = val.As<v8::String>()->Write(env->isolate, reinterpret_cast<uint16_t*>(buf), 0, bufsize - 1,
                                                  v8::String::NO_NULL_TERMINATION);
 
         buf[copied] = '\0';
+#endif
         if (result != nullptr) {
+#if JSVM_V8_NEW_VERSION
+            *result = length;
+#else
             *result = copied;
+#endif
         }
     } else if (result != nullptr) {
         *result = 0;

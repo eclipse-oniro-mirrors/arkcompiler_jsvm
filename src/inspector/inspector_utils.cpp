@@ -210,9 +210,15 @@ TwoByteValue::TwoByteValue(Isolate* isolate, Local<Value> value)
     const size_t storage = string->Length() + 1;
     AllocateSufficientStorage(storage);
 
+#if JSVM_V8_NEW_VERSION
+    const int flags = String::WriteFlags::kNullTerminate;
+    string->WriteV2(isolate, 0, storage, Out(), flags);
+    SetLengthAndZeroTerminate(string->Length());
+#else
     const int flags = String::NO_NULL_TERMINATION;
     const int length = string->Write(isolate, Out(), 0, storage, flags);
     SetLengthAndZeroTerminate(length);
+#endif
 }
 } // namespace inspector
 } // namespace jsvm
