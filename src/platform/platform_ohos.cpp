@@ -220,16 +220,21 @@ bool ReadAdvancedSecurityMode()
     return static_cast<bool>(state);
 }
 
+void SetV8CommandLineFlags(size_t argc, const char* const *argv, bool removeFlag)
+{
+    int secArgc = static_cast<int>(argc);
+    v8::V8::SetFlagsFromCommandLine(&secArgc,
+        const_cast<char**>(const_cast<char* const*>(argv)), removeFlag);
+}
+
 void SetSecurityMode()
 {
     constexpr size_t secArgCnt = 2;
     if (ReadAdvancedSecurityMode() || !HasJitfortACL()) {
         isJitMode = false;
-        int secArgc = secArgCnt;
         constexpr bool removeFlag = false;
         const char* secArgv[secArgCnt] = { "jsvm", "--jitless" };
-        v8::V8::SetFlagsFromCommandLine(&secArgc, const_cast<char**>(reinterpret_cast<const char**>(secArgv)),
-                                        removeFlag);
+        SetV8CommandLineFlags(secArgCnt, secArgv, removeFlag);
     }
 }
 

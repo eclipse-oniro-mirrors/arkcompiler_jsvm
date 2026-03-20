@@ -1071,6 +1071,15 @@ JSVM_Status OH_JSVM_Init(const JSVM_InitOptions* options)
             v8::V8::SetFlagsFromCommandLine(options->argc, options->argv, options->removeFlags);
         }
         OHOS_CALL(platform::ohos::SetSecurityMode());
+
+        constexpr size_t secArgCnt = 2;
+        constexpr bool removeFlag = false;
+        const char* secArgv[secArgCnt] = {
+            "jsvm",
+            "--enable-experimental-regexp-engine"
+        };
+        platform::ohos::SetV8CommandLineFlags(secArgCnt, secArgv, removeFlag);
+
         v8::V8::Initialize();
 
         const auto cb = v8impl::FunctionCallbackWrapper::Invoke;
