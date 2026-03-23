@@ -32,6 +32,8 @@ enum ThreadRole : int64_t {
 
 void ReportKeyThread(ThreadRole role);
 
+void SetV8CommandLineFlags(size_t argc, const char* const *argv, bool removeFlag);
+
 void SetSecurityMode();
 
 void WriteJSVMInitToHisysevent();

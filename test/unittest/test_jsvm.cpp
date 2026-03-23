@@ -1765,3 +1765,24 @@ HWTEST_F(JSVMTestWithoutHandleScope, JSVMFinalizerAndErrorTest, TestSize.Level1)
     OH_JSVM_MemoryPressureNotification(env, JSVM_MEMORY_PRESSURE_LEVEL_CRITICAL);
 }
 
+HWTEST_F(JSVMTest, JSVMCreateRegExp, TestSize.Level1)
+{
+    JSVM_HandleScope handle = nullptr;
+    JSVMTEST_CALL(OH_JSVM_OpenHandleScope(env, &handle));
+
+    JSVM_Value jsvmStr;
+    const char* str = "apple";
+    JSVMTEST_CALL(OH_JSVM_CreateStringUtf8(env, str, strlen(str), &jsvmStr));
+    JSVM_Value regExpValue = nullptr;
+    JSVMTEST_CALL(OH_JSVM_CreateRegExp(env, jsvmStr, JSVM_RegExpFlags::JSVM_REGEXP_LINEAR, &regExpValue));
+    bool isRegExp = false;
+    JSVMTEST_CALL(OH_JSVM_IsRegExp(env, regExpValue, &isRegExp));
+    ASSERT_TRUE(isRegExp);
+    jsvm::SetProperty(jsvm::Global(), "regExp", regExpValue);
+    JSVM_Value runResult = jsvm::Run("regExp.test(\"this is an apple\")");
+    bool result = jsvm::ToBoolean(runResult);
+    ASSERT_TRUE(result);
+    jsvm::SetProperty(jsvm::Global(), "regExp", jsvm::Undefined());
+
+    JSVMTEST_CALL(OH_JSVM_CloseHandleScope(env, handle));
+}
