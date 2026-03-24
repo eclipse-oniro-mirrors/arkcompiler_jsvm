@@ -1786,3 +1786,18 @@ HWTEST_F(JSVMTest, JSVMCreateRegExp, TestSize.Level1)
 
     JSVMTEST_CALL(OH_JSVM_CloseHandleScope(env, handle));
 }
+
+HWTEST_F(JSVMTest, JSVMUseLargeMemory, TestSize.Level1)
+{
+    JSVM_HandleScope handle = nullptr;
+    JSVMTEST_CALL(OH_JSVM_OpenHandleScope(env, &handle));
+
+    const int numCount = 100000;
+    JSVM_Deferred defer[numCount] = {nullptr};
+    JSVM_Value promise[numCount] = {nullptr};
+    for (int i = 0; i < numCount; i++) {
+        JSVMTEST_CALL(OH_JSVM_CreatePromise(env, &defer[i], &promise[i]));
+    }
+
+    JSVMTEST_CALL(OH_JSVM_CloseHandleScope(env, handle));
+}
