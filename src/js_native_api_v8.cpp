@@ -33,6 +33,7 @@
 #include "jsvm_env.h"
 #include "jsvm_log.h"
 #include "jsvm_reference-inl.h"
+#include "jsvm_task.h"
 #include "jsvm_util.h"
 #include "libplatform/libplatform.h"
 #include "libplatform/v8-tracing.h"
@@ -1351,6 +1352,33 @@ JSVM_Status OH_JSVM_CompileScript(JSVM_Env env,
     return GET_RETURN_STATUS(env);
 }
 
+JSVM_Status OH_JSVM_BackgroundDeserialize(
+    JSVM_VM vm, JSVM_CodeCache cacheData, JSVM_DeserializeResult *result)
+{
+    RETURN_STATUS_IF_FALSE_WITHOUT_ENV(result != nullptr, JSVM_INVALID_ARG);
+    if (UNLIKELY(!(cacheData.cache != nullptr && cacheData.length != 0))) {
+        *result = nullptr;
+        return JSVM_INVALID_ARG;
+    }
+
+    auto isolate = reinterpret_cast<v8::Isolate*>(vm);
+
+    auto task = v8impl::CreateConsumeCodeCacheTask(isolate, cacheData.cache, cacheData.length);
+
+    *result = new JSVM_DeserializeResult__(task->GetResult());
+
+    v8impl::g_platform.get()->CallOnWorkerThread(std::move(task));
+
+    return JSVM_OK;
+}
+
+JSVM_Status OH_JSVM_ReleaseDeserializeResult(JSVM_DeserializeResult result)
+{
+    RETURN_STATUS_IF_FALSE_WITHOUT_ENV(result != nullptr, JSVM_INVALID_ARG);
+    delete result;
+    return JSVM_OK;
+}
+
 v8::ScriptOrigin CreateScriptOrigin(v8::Isolate* isolate, v8::Local<v8::String> resourceName, v8::ScriptType type)
 {
     const int kOptionsLength = 2;
@@ -1487,6 +1515,17 @@ public:
                     enableSourceMap = options[i].content.boolean;
                     break;
                 }
+                case JSVM_COMPILE_BACKGROUND_DESERIALIZE_RESULT: {
+                    auto deserializeResult = static_cast<JSVM_DeserializeResult>(options[i].content.ptr);
+                    if (deserializeResult != nullptr) {
+                        consumeCodeCacheTask = *deserializeResult->result;
+                    }
+                    break;
+                }
+                case JSVM_COMPILE_CODE_CACHE_REJECTED: {
+                    codeCacheRejected = static_cast<bool *>(options[i].content.ptr);
+                    break;
+                }
                 default: {
                     continue;
                 }
@@ -1518,6 +1557,8 @@ public:
 
     v8::ScriptCompiler::CompileOptions v8Option = v8::ScriptCompiler::kNoCompileOptions;
     v8::ScriptCompiler::CachedData* cachedData = nullptr;
+    v8::ScriptCompiler::ConsumeCodeCacheTask* consumeCodeCacheTask = nullptr;
+    bool *codeCacheRejected = nullptr;
     v8::ScriptOrigin* v8Origin = nullptr;
     JSVM_CompileProfile* profile = nullptr;
     JSVM_ScriptOrigin* jsvmOrigin = nullptr;
@@ -1569,9 +1610,15 @@ JSVM_Status OH_JSVM_CompileScriptWithOptions(JSVM_Env env,
 
     RETURN_STATUS_IF_FALSE(env, v8Script->IsString(), JSVM_STRING_EXPECTED);
 
-    v8::ScriptCompiler::Source scriptSource(v8Script.As<v8::String>(), *optionResolver.v8Origin,
-                                            optionResolver.cachedData);
+    v8::ScriptCompiler::Source scriptSource(v8Script.As<v8::String>(),
+        *optionResolver.v8Origin,
+        optionResolver.cachedData,
+        optionResolver.consumeCodeCacheTask);
     auto maybeScript = v8::ScriptCompiler::Compile(context, &scriptSource, optionResolver.v8Option);
+
+    if (optionResolver.cachedData && optionResolver.codeCacheRejected) {
+        *optionResolver.codeCacheRejected = optionResolver.cachedData->rejected;
+    }
     CHECK_MAYBE_EMPTY(env, maybeScript, JSVM_GENERIC_FAILURE);
     v8::Local<v8::Script> compiledScript = maybeScript.ToLocalChecked();
     *result = reinterpret_cast<JSVM_Script>(env->NewJsvmData(compiledScript));

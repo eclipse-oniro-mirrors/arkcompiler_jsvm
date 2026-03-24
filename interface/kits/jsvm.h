@@ -3205,6 +3205,32 @@ JSVM_EXTERN JSVM_Status OH_JSVM_DefineClassWithOptions(JSVM_Env env,
                                                        JSVM_DefineClassOptions options[],
                                                        JSVM_Value* result);
 
+/**
+ * @brief Deserialize JavaScript code cache in thread pool, and release
+ * JSVM_DeserializeResult with OH_JSVM_ReleaseDeserializeResult.
+ *
+ * @param vm The VM instance where background deserialize will be performed.
+ * @param cacheData Code cache data to be deserialized.
+ * @param result The result of background deserialize.
+ * @return Returns JSVM funtions result code.
+ *         {@link JSVM_OK } if the function executed successfully.\n
+ *         {@link JSVM_INVALID_ARG } if any of the pointer arguments is NULL.\n
+ * @since 24
+ */
+JSVM_EXTERN JSVM_Status OH_JSVM_BackgroundDeserialize(
+    JSVM_VM vm, JSVM_CodeCache cacheData, JSVM_DeserializeResult* result);
+
+/**
+ * @brief Release deserialize result.
+ *
+ * @param result The background deserialize result to be release.
+ * @return Returns JSVM funtions result code.
+ *         {@link JSVM_OK } if the function executed successfully.\n
+ *         {@link JSVM_INVALID_ARG } if any of the pointer arguments is NULL.\n
+ * @since 24
+ */
+JSVM_EXTERN JSVM_Status OH_JSVM_ReleaseDeserializeResult(JSVM_DeserializeResult result);
+
 // clang-format on
 EXTERN_C_END
 

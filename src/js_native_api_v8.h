@@ -33,37 +33,37 @@ inline JSVM_Status SetLastError(JSVM_Env env,
 
 #define RETURN_STATUS_IF_FALSE(env, condition, status) \
     do {                                               \
-        if (!(condition)) {                            \
+        if (UNLIKELY(!(condition))) {                  \
             return SetLastError((env), (status));      \
         }                                              \
     } while (0)
 
 #define RETURN_STATUS_IF_FALSE_WITHOUT_ENV(condition, status) \
     do {                                                      \
-        if (!(condition)) {                                   \
+        if (UNLIKELY(!(condition))) {                         \
             return status;                                    \
         }                                                     \
     } while (0)
 
 #define RETURN_STATUS_IF_FALSE_WITH_PREAMBLE(env, condition, status)                              \
     do {                                                                                          \
-        if (!(condition)) {                                                                       \
+        if (UNLIKELY(!(condition))) {                                                             \
             return SetLastError((env), tryCatch.HasCaught() ? JSVM_PENDING_EXCEPTION : (status)); \
         }                                                                                         \
     } while (0)
 
 #define RETURN_IF_EXCEPTION_HAS_CAUGHT(env)                     \
     do {                                                        \
-        if (tryCatch.HasCaught()) {                             \
+        if (UNLIKELY(tryCatch.HasCaught())) {                   \
             return SetLastError((env), JSVM_PENDING_EXCEPTION); \
         }                                                       \
     } while (0)
 
-#define CHECK_ENV(env)               \
-    do {                             \
-        if ((env) == nullptr) {      \
-            return JSVM_INVALID_ARG; \
-        }                            \
+#define CHECK_ENV(env)                    \
+    do {                                  \
+        if (UNLIKELY((env) == nullptr)) { \
+            return JSVM_INVALID_ARG;      \
+        }                                 \
     } while (0)
 
 #define CHECK_ENV_NOT_IN_GC(env) \
@@ -144,7 +144,7 @@ inline JSVM_Status SetLastError(JSVM_Env env,
 
 #define THROW_RANGE_ERROR_IF_FALSE(env, condition, error, message) \
     do {                                                           \
-        if (!(condition)) {                                        \
+        if (UNLIKELY(!(condition))) {                              \
             OH_JSVM_ThrowRangeError((env), (error), (message));    \
             return SetLastError((env), JSVM_GENERIC_FAILURE);      \
         }                                                          \
@@ -223,11 +223,11 @@ FORCE_NOINLINE void CheckScope(JSVM_Env env, JSVM_Value val, const char *callerF
         }                                   \
     } while (0)
 
-#define STATUS_CALL(call)            \
-    do {                             \
-        JSVM_Status status = (call); \
-        if (status != JSVM_OK)       \
-            return status;           \
+#define STATUS_CALL(call)                \
+    do {                                 \
+        JSVM_Status status = (call);     \
+        if (UNLIKELY(status != JSVM_OK)) \
+            return status;               \
     } while (0)
 
 namespace v8impl {
