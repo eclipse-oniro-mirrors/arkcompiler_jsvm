@@ -55,6 +55,7 @@ HWTEST_F(Test, JSVMInitTest, TestSize.Level1)
 
 JSVM_Env jsvm_env = nullptr;
 
+static const char SRC_PROF_CACHE_PATH[] = "srcProf.cache";
 static string srcProf = R"JS(
 function sleep(delay) {
     var start = (new Date()).getTime();
@@ -206,6 +207,28 @@ protected:
     JSVM_VMScope vm_scope = nullptr;
 };
 
+static std::vector<uint8_t> ReadBinaryFile(const char *path)
+{
+    std::ifstream infile(path, std::ifstream::binary);
+    if (!infile.good()) {
+        std::cout << "Error: " << path << " not found" << std::endl;
+        return std::vector<uint8_t>();
+    }
+    infile.seekg(0, std::ifstream::end);
+    size_t size = infile.tellg();
+    infile.seekg(0);
+    std::vector<uint8_t> buffer(size);
+    infile.read(reinterpret_cast<char *>(buffer.data()), size);
+    infile.close();
+    return buffer;
+}
+
+static void WriteBinaryFile(const char *path, const uint8_t *data, size_t byteLength)
+{
+    std::ofstream outfile(path, std::ofstream::binary);
+    outfile.write(reinterpret_cast<const char *>(data), byteLength);
+}
+
 class JSVMTest : public testing::Test {
 public:
     static void SetUpTestCase()
@@ -213,6 +236,7 @@ public:
         GTEST_LOG_(INFO) << "JSVMTest SetUpTestCase";
         JSVM_InitOptions init_options {};
         OH_JSVM_Init(&init_options);
+        InitCodeCache();
     }
 
     static void TearDownTestCase() {}
@@ -230,6 +254,36 @@ public:
     void TearDown() override
     {
         GTEST_LOG_(INFO) << "JSVMTest TearDown";
+        OH_JSVM_CloseHandleScope(env, handleScope);
+        OH_JSVM_CloseEnvScope(env, env_scope);
+        OH_JSVM_CloseVMScope(vm, vm_scope);
+        OH_JSVM_DestroyEnv(env);
+        OH_JSVM_DestroyVM(vm);
+    }
+
+    static void InitCodeCache()
+    {
+        JSVM_Env env = nullptr;
+        JSVM_VM vm = nullptr;
+        JSVM_EnvScope env_scope = nullptr;
+        JSVM_VMScope vm_scope = nullptr;
+        JSVM_HandleScope handleScope;
+
+        OH_JSVM_CreateVM(nullptr, &vm);
+        OH_JSVM_CreateEnv(vm, 0, nullptr, &env);
+        OH_JSVM_OpenVMScope(vm, &vm_scope);
+        OH_JSVM_OpenEnvScope(env, &env_scope);
+        OH_JSVM_OpenHandleScope(env, &handleScope);
+
+        JSVM_Value jsSrc;
+        OH_JSVM_CreateStringUtf8(env, srcProf.c_str(), srcProf.size(), &jsSrc);
+        JSVM_Script script = nullptr;
+        OH_JSVM_CompileScript(env, jsSrc, nullptr, 0, true, nullptr, &script);
+        const uint8_t *cache = nullptr;
+        size_t cacheLength = 0;
+        OH_JSVM_CreateCodeCache(env, script, &cache, &cacheLength);
+        WriteBinaryFile(SRC_PROF_CACHE_PATH, cache, cacheLength);
+
         OH_JSVM_CloseHandleScope(env, handleScope);
         OH_JSVM_CloseEnvScope(env, env_scope);
         OH_JSVM_CloseVMScope(vm, vm_scope);
@@ -1800,4 +1854,62 @@ HWTEST_F(JSVMTest, JSVMUseLargeMemory, TestSize.Level1)
     }
 
     JSVMTEST_CALL(OH_JSVM_CloseHandleScope(env, handle));
+}
+
+HWTEST_F(JSVMTest, JSVMBackgroundDeserialize, TestSize.Level1)
+{
+    std::vector<uint8_t> buffer = ReadBinaryFile(SRC_PROF_CACHE_PATH);
+    ASSERT_TRUE(!buffer.empty());
+
+    JSVM_DeserializeResult deserializeResult;
+    JSVM_CodeCache cacheData = {.cache = buffer.data(), .length = buffer.size()};
+    JSVMTEST_CALL(OH_JSVM_BackgroundDeserialize(vm, cacheData, &deserializeResult));
+
+    JSVM_Value jsSrc;
+    JSVMTEST_CALL(OH_JSVM_CreateStringUtf8(env, srcProf.c_str(), srcProf.size(), &jsSrc));
+
+    bool rejected = true;
+    JSVM_CompileOptions options[] = {
+        {.id = JSVM_COMPILE_MODE, .content.num = JSVM_COMPILE_MODE_CONSUME_CODE_CACHE},
+        {.id = JSVM_COMPILE_CODE_CACHE, .content.ptr = &cacheData},
+        {.id = JSVM_COMPILE_BACKGROUND_DESERIALIZE_RESULT, .content.ptr = deserializeResult},
+        {.id = JSVM_COMPILE_CODE_CACHE_REJECTED, .content.ptr = &rejected},
+    };
+
+    this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    JSVM_Script script = nullptr;
+    JSVMTEST_CALL(
+        OH_JSVM_CompileScriptWithOptions(env, jsSrc, sizeof(options) / sizeof(JSVM_CompileOptions), options, &script));
+
+    ASSERT_TRUE(!rejected);
+    JSVMTEST_CALL(OH_JSVM_ReleaseDeserializeResult(deserializeResult));
+}
+
+HWTEST_F(JSVMTest, JSVMBackgroundDeserialize1, TestSize.Level1)
+{
+    std::vector<uint8_t> buffer = ReadBinaryFile(SRC_PROF_CACHE_PATH);
+    ASSERT_TRUE(!buffer.empty());
+
+    JSVM_CodeCache cacheData = {.cache = buffer.data(), .length = buffer.size()};
+    ASSERT_EQ(OH_JSVM_BackgroundDeserialize(vm, cacheData, nullptr), JSVM_INVALID_ARG);
+
+    JSVM_DeserializeResult deserializeResult = nullptr;
+    JSVM_CodeCache invalidCacheData1 = {.cache = nullptr, .length = buffer.size()};
+    ASSERT_EQ(OH_JSVM_BackgroundDeserialize(vm, invalidCacheData1, &deserializeResult), JSVM_INVALID_ARG);
+
+    JSVM_CodeCache invalidCacheData2 = {.cache = buffer.data(), .length = 0};
+    ASSERT_EQ(OH_JSVM_BackgroundDeserialize(vm, invalidCacheData2, &deserializeResult), JSVM_INVALID_ARG);
+
+    JSVM_Value jsSrc;
+    JSVMTEST_CALL(OH_JSVM_CreateStringUtf8(env, srcProf.c_str(), srcProf.size(), &jsSrc));
+    JSVM_CompileOptions options[] = {
+        {.id = JSVM_COMPILE_BACKGROUND_DESERIALIZE_RESULT, .content.ptr = nullptr},
+        {.id = JSVM_COMPILE_CODE_CACHE_REJECTED, .content.ptr = nullptr},
+    };
+    JSVM_Script script = nullptr;
+    JSVMTEST_CALL(
+        OH_JSVM_CompileScriptWithOptions(env, jsSrc, sizeof(options) / sizeof(JSVM_CompileOptions), options, &script));
+
+    ASSERT_EQ(OH_JSVM_ReleaseDeserializeResult(nullptr), JSVM_INVALID_ARG);
 }

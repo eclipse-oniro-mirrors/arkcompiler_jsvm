@@ -17,6 +17,8 @@
 #define JSVM_TASK_H
 
 #include <future>
+#include "v8-platform.h"
+#include "v8-script.h"
 
 namespace v8impl {
 
