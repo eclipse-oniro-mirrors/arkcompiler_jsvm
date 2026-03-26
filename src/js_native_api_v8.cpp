@@ -1376,6 +1376,7 @@ JSVM_Status OH_JSVM_BackgroundDeserialize(
 JSVM_Status OH_JSVM_ReleaseDeserializeResult(JSVM_DeserializeResult result)
 {
     RETURN_STATUS_IF_FALSE_WITHOUT_ENV(result != nullptr, JSVM_INVALID_ARG);
+    result->result.reset();
     delete result;
     return JSVM_OK;
 }
