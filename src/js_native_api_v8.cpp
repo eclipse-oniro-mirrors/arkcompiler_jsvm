@@ -1182,6 +1182,60 @@ JSVM_Status OH_JSVM_CloseVMScope(JSVM_VM vm, JSVM_VMScope scope)
     return JSVM_OK;
 }
 
+// RAII helper: ensures v8::Isolate TLS is set when needed.
+// Without VMScope (Isolate::Enter), V8 14.4's internal APIs use Isolate::Current()
+// (TLS) which returns nullptr, causing crashes. This guard transparently enters
+// the isolate if TLS is not set, and exits on destruction.
+class IsolateGuard {
+public:
+    explicit IsolateGuard(v8::Isolate* expectedIsolate) : expectedIsolate_(expectedIsolate), entered_(false)
+    {
+        v8::Isolate* current = v8::Isolate::TryGetCurrent();
+        if (current != expectedIsolate) {
+            if (current == nullptr) {
+                LOG(Error) << "[IsolateGuard] TLS Isolate is null. Caller should open JSVM_VMScope first.";
+            } else {
+                LOG(Error) << "[IsolateGuard] TLS Isolate mismatch.";
+            }
+            expectedIsolate->Enter();
+            entered_ = true;
+        }
+    }
+    ~IsolateGuard()
+    {
+        if (entered_) {
+            v8::Isolate* current = v8::Isolate::TryGetCurrent();
+            if (current != expectedIsolate_) {
+                LOG(Error) << "[IsolateGuard] TLS Isolate changed during scope.";
+            }
+            expectedIsolate_->Exit();
+        }
+    }
+    IsolateGuard(const IsolateGuard&) = delete;
+    IsolateGuard& operator=(const IsolateGuard&) = delete;
+
+private:
+    v8::Isolate* expectedIsolate_ = nullptr;
+    bool entered_ = false;
+};
+
+// EnvScopeWrapper combines IsolateGuard + Context::Scope.
+// Construction order: IsolateGuard (Enter) → Context::Scope (Context::Enter)
+// Destruction order: ~Context::Scope (Context::Exit) → ~IsolateGuard (Exit)
+class EnvScopeWrapper {
+public:
+    EnvScopeWrapper(v8::Isolate* expectedIsolate, v8::Local<v8::Context> ctx)
+        : guard_(expectedIsolate), contextScope_(ctx)
+    {}
+
+    EnvScopeWrapper(const EnvScopeWrapper&) = delete;
+    EnvScopeWrapper& operator=(const EnvScopeWrapper&) = delete;
+
+private:
+    IsolateGuard guard_;
+    v8::Context::Scope contextScope_;
+};
+
 JSVM_Status OH_JSVM_CreateEnv(JSVM_VM vm,
                               size_t propertyCount,
                               const JSVM_PropertyDescriptor* properties,
@@ -1189,15 +1243,7 @@ JSVM_Status OH_JSVM_CreateEnv(JSVM_VM vm,
 {
     auto isolate = reinterpret_cast<v8::Isolate*>(vm);
 #if JSVM_V8_NEW_VERSION
-    auto currentIsolate = v8::Isolate::GetCurrent();
-    v8::Isolate::Scope *tmpScope = nullptr;
-    if (currentIsolate == nullptr) {
-        LOG(Error) << "[OH_JSVM_CreateEnv] There is no JSVM_VMScope";
-        tmpScope = new v8::Isolate::Scope(isolate);
-    } else if (currentIsolate != isolate) {
-        LOG(Error) << "[OH_JSVM_CreateEnv] The input JSVM_VM does not match the current JSVM_VMScope";
-        tmpScope = new v8::Isolate::Scope(isolate);
-    }
+    IsolateGuard isolateGuard(isolate);
 #endif
     auto env = new JSVM_Env__(isolate, JSVM_API_VERSION);
     v8::HandleScope handleScope(isolate);
@@ -1248,11 +1294,6 @@ JSVM_Status OH_JSVM_CreateEnv(JSVM_VM vm,
         }
     }
     LOG(Info) << "JSVM Env has been created";
-#if JSVM_V8_NEW_VERSION
-    if (tmpScope != nullptr) {
-        delete tmpScope;
-    }
-#endif
     // The error code is set in constructor function, just return JSVM_OK here.
     return JSVM_OK;
 }
@@ -1280,38 +1321,24 @@ JSVM_EXTERN JSVM_Status OH_JSVM_CreateEnvFromSnapshot(JSVM_VM vm, size_t index, 
 JSVM_Status OH_JSVM_DestroyEnv(JSVM_Env env)
 {
 #if JSVM_V8_NEW_VERSION
-    auto isolate = env->isolate;
-    auto currentIsolate = v8::Isolate::GetCurrent();
-    v8::Isolate::Scope *tmpScope = nullptr;
-    if (currentIsolate == nullptr) {
-        LOG(Error) << "[OH_JSVM_DestroyEnv] There is no JSVM_VMScope";
-        tmpScope = new v8::Isolate::Scope(isolate);
-    } else if (currentIsolate != isolate) {
-        LOG(Error) << "[OH_JSVM_DestroyEnv] The input JSVM_VM does not match the current JSVM_VMScope";
-        tmpScope = new v8::Isolate::Scope(isolate);
-    }
+    IsolateGuard isolateGuard(env->isolate);
 #endif
     env->DeleteMe();
     LOG(Info) << "JSVM Env has been destroyed";
-#if JSVM_V8_NEW_VERSION
-    if (tmpScope != nullptr) {
-        delete tmpScope;
-    }
-#endif
     return JSVM_OK;
 }
 
 JSVM_Status OH_JSVM_OpenEnvScope(JSVM_Env env, JSVM_EnvScope* result)
 {
-    auto *v8scope = env->scopeMemoryManager.New<v8::Context::Scope>(env->context());
-    *result = reinterpret_cast<JSVM_EnvScope>(v8scope);
+    auto *wrapper = env->scopeMemoryManager.New<EnvScopeWrapper>(env->isolate, env->context());
+    *result = reinterpret_cast<JSVM_EnvScope>(wrapper);
     return ClearLastError(env);
 }
 
 JSVM_Status OH_JSVM_CloseEnvScope(JSVM_Env env, JSVM_EnvScope scope)
 {
-    auto v8scope = reinterpret_cast<v8::Context::Scope*>(scope);
-    env->scopeMemoryManager.Delete(v8scope);
+    auto wrapper = reinterpret_cast<EnvScopeWrapper*>(scope);
+    env->scopeMemoryManager.Delete(wrapper);
     return ClearLastError(env);
 }
 
@@ -1397,6 +1424,7 @@ v8::MaybeLocal<v8::Value> PrepareStackTraceCallback(v8::Local<v8::Context> conte
                                                     v8::Local<v8::Array> trace)
 {
 #if JSVM_V8_NEW_VERSION
+    // This callback is invoked by V8 internally, so TLS is always set.
     auto* isolate = v8::Isolate::GetCurrent();
 #else
     auto* isolate = context->GetIsolate();
@@ -1454,11 +1482,7 @@ JSVM_Status OH_JSVM_CompileScriptWithOrigin(JSVM_Env env,
     RETURN_STATUS_IF_FALSE(env, v8Script->IsString(), JSVM_STRING_EXPECTED);
 
     v8::Local<v8::Context> context = env->context();
-#if JSVM_V8_NEW_VERSION
-    auto* isolate = v8::Isolate::GetCurrent();
-#else
-    auto* isolate = context->GetIsolate();
-#endif
+    auto* isolate = env->isolate;
 
     if (origin->sourceMapUrl) {
         v8impl::SetFileToSourceMapMapping(origin->resourceName, origin->sourceMapUrl);
@@ -1600,11 +1624,7 @@ JSVM_Status OH_JSVM_CompileScriptWithOptions(JSVM_Env env,
     CHECK_SCOPE(env, script);
 
     v8::Local<v8::Context> context = env->context();
-#if JSVM_V8_NEW_VERSION
-    auto* isolate = v8::Isolate::GetCurrent();
-#else
-    auto* isolate = context->GetIsolate();
-#endif
+    auto* isolate = env->isolate;
     CompileOptionResolver optionResolver(optionCount, options, isolate);
     RETURN_STATUS_IF_FALSE(env, !optionResolver.hasInvalidOption, JSVM_INVALID_ARG);
 
