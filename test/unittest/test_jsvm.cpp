@@ -1913,3 +1913,170 @@ HWTEST_F(JSVMTest, JSVMBackgroundDeserialize1, TestSize.Level1)
 
     ASSERT_EQ(OH_JSVM_ReleaseDeserializeResult(nullptr), JSVM_INVALID_ARG);
 }
+
+// ============================================================================
+// Cross-thread / Missing-VMScope tests
+//
+// These tests verify that JSVM's IsolateGuard mechanism works correctly:
+// 1. EnvScope alone (without VMScope) is sufficient for full API usage
+// 2. Cross-thread env handoff works with proper scope management
+// 3. Script execution works without VMScope
+// ============================================================================
+
+// A standalone fixture that only calls OH_JSVM_Init, without auto-opening scopes.
+class JSVMNoScopeTest : public testing::Test {
+public:
+    static void SetUpTestCase()
+    {
+        JSVM_InitOptions init_options {};
+        OH_JSVM_Init(&init_options);
+    }
+    static void TearDownTestCase() {}
+};
+
+// Test: EnvScope without VMScope — full API usage including property operations.
+// VMScope (Isolate::Enter) sets TLS; without it, TLS isolate is null.
+// IsolateGuard in EnvScope compensates by entering the isolate automatically.
+HWTEST_F(JSVMNoScopeTest, NoVMScopeFullAPIUsage, TestSize.Level1)
+{
+    JSVM_VM vm = nullptr;
+    JSVM_Env env = nullptr;
+    ASSERT_EQ(OH_JSVM_CreateVM(nullptr, &vm), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_CreateEnv(vm, 0, nullptr, &env), JSVM_OK);
+    jsvm_env = env;
+
+    // Deliberately skip OH_JSVM_OpenVMScope
+    JSVM_EnvScope envScope = nullptr;
+    JSVM_HandleScope handleScope = nullptr;
+    ASSERT_EQ(OH_JSVM_OpenEnvScope(env, &envScope), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_OpenHandleScope(env, &handleScope), JSVM_OK);
+
+    // Object creation + property set/get
+    JSVM_Value obj = nullptr;
+    JSVMTEST_CALL(OH_JSVM_CreateObject(env, &obj));
+
+    JSVM_Value key = nullptr, val = nullptr;
+    JSVMTEST_CALL(OH_JSVM_CreateStringUtf8(env, "answer", 6, &key));
+    JSVMTEST_CALL(OH_JSVM_CreateInt32(env, 42, &val));
+    JSVMTEST_CALL(OH_JSVM_SetProperty(env, obj, key, val));
+
+    JSVM_Value result = nullptr;
+    JSVMTEST_CALL(OH_JSVM_GetProperty(env, obj, key, &result));
+    int32_t intVal = 0;
+    JSVMTEST_CALL(OH_JSVM_GetValueInt32(env, result, &intVal));
+    ASSERT_EQ(intVal, 42);
+
+    // Global object access — Context::Global() uses Isolate::Current()
+    JSVM_Value global = nullptr;
+    JSVMTEST_CALL(OH_JSVM_GetGlobal(env, &global));
+    JSVM_Value objectCtor = nullptr;
+    JSVMTEST_CALL(OH_JSVM_GetNamedProperty(env, global, "Object", &objectCtor));
+    JSVM_ValueType vt;
+    JSVMTEST_CALL(OH_JSVM_Typeof(env, objectCtor, &vt));
+    ASSERT_EQ(vt, JSVM_FUNCTION);
+
+    ASSERT_EQ(OH_JSVM_CloseHandleScope(env, handleScope), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_CloseEnvScope(env, envScope), JSVM_OK);
+    OH_JSVM_DestroyEnv(env);
+    OH_JSVM_DestroyVM(vm);
+}
+
+// Test: Script execution without VMScope.
+// Verifies compile + run work when only EnvScope provides the TLS isolate.
+HWTEST_F(JSVMNoScopeTest, NoVMScopeScriptExecution, TestSize.Level1)
+{
+    JSVM_VM vm = nullptr;
+    JSVM_Env env = nullptr;
+    ASSERT_EQ(OH_JSVM_CreateVM(nullptr, &vm), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_CreateEnv(vm, 0, nullptr, &env), JSVM_OK);
+    jsvm_env = env;
+
+    JSVM_EnvScope envScope = nullptr;
+    JSVM_HandleScope handleScope = nullptr;
+    ASSERT_EQ(OH_JSVM_OpenEnvScope(env, &envScope), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_OpenHandleScope(env, &handleScope), JSVM_OK);
+
+    const char* code = "(() => { var sum = 0; for (var i = 1; i <= 100; i++) sum += i; return sum; })()";
+    JSVM_Value src = nullptr;
+    JSVMTEST_CALL(OH_JSVM_CreateStringUtf8(env, code, strlen(code), &src));
+
+    JSVM_Script script = nullptr;
+    JSVMTEST_CALL(OH_JSVM_CompileScript(env, src, nullptr, 0, true, nullptr, &script));
+
+    JSVM_Value result = nullptr;
+    JSVMTEST_CALL(OH_JSVM_RunScript(env, script, &result));
+
+    int32_t val = 0;
+    JSVMTEST_CALL(OH_JSVM_GetValueInt32(env, result, &val));
+    ASSERT_EQ(val, 5050);
+
+    ASSERT_EQ(OH_JSVM_CloseHandleScope(env, handleScope), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_CloseEnvScope(env, envScope), JSVM_OK);
+    OH_JSVM_DestroyEnv(env);
+    OH_JSVM_DestroyVM(vm);
+}
+
+// Test: Proper cross-thread env handoff with full API usage.
+// Thread1 creates VM/Env, uses them, then hands off. Thread2 opens scopes and
+// does property operations. This is the CORRECT cross-thread usage pattern.
+HWTEST_F(JSVMNoScopeTest, CrossThreadHandoffWithAPICalls, TestSize.Level1)
+{
+    JSVM_VM vm = nullptr;
+    JSVM_Env env = nullptr;
+    std::atomic<bool> t1Ready{false};
+    std::atomic<bool> t2Done{false};
+    std::atomic<bool> t2Success{false};
+
+    std::thread t1([&]() {
+        ASSERT_EQ(OH_JSVM_CreateVM(nullptr, &vm), JSVM_OK);
+        ASSERT_EQ(OH_JSVM_CreateEnv(vm, 0, nullptr, &env), JSVM_OK);
+
+        JSVM_VMScope vs = nullptr;
+        JSVM_EnvScope es = nullptr;
+        ASSERT_EQ(OH_JSVM_OpenVMScope(vm, &vs), JSVM_OK);
+        ASSERT_EQ(OH_JSVM_OpenEnvScope(env, &es), JSVM_OK);
+        ASSERT_EQ(OH_JSVM_CloseEnvScope(env, es), JSVM_OK);
+        ASSERT_EQ(OH_JSVM_CloseVMScope(vm, vs), JSVM_OK);
+
+        t1Ready.store(true);
+        while (!t2Done.load()) { std::this_thread::sleep_for(std::chrono::milliseconds(1)); }
+
+        OH_JSVM_DestroyEnv(env);
+        OH_JSVM_DestroyVM(vm);
+    });
+
+    std::thread t2([&]() {
+        while (!t1Ready.load()) { std::this_thread::sleep_for(std::chrono::milliseconds(1)); }
+        jsvm_env = env;
+
+        JSVM_VMScope vs = nullptr;
+        JSVM_EnvScope es = nullptr;
+        JSVM_HandleScope hs = nullptr;
+        ASSERT_EQ(OH_JSVM_OpenVMScope(vm, &vs), JSVM_OK);
+        ASSERT_EQ(OH_JSVM_OpenEnvScope(env, &es), JSVM_OK);
+        ASSERT_EQ(OH_JSVM_OpenHandleScope(env, &hs), JSVM_OK);
+
+        JSVM_Value obj = nullptr;
+        JSVMTEST_CALL(OH_JSVM_CreateObject(env, &obj));
+        JSVM_Value key = nullptr, val = nullptr;
+        JSVMTEST_CALL(OH_JSVM_CreateStringUtf8(env, "x", 1, &key));
+        JSVMTEST_CALL(OH_JSVM_CreateInt32(env, 99, &val));
+        JSVMTEST_CALL(OH_JSVM_SetProperty(env, obj, key, val));
+
+        JSVM_Value result = nullptr;
+        JSVMTEST_CALL(OH_JSVM_GetProperty(env, obj, key, &result));
+        int32_t intVal = 0;
+        JSVMTEST_CALL(OH_JSVM_GetValueInt32(env, result, &intVal));
+        EXPECT_EQ(intVal, 99);
+        t2Success.store(intVal == 99);
+
+        ASSERT_EQ(OH_JSVM_CloseHandleScope(env, hs), JSVM_OK);
+        ASSERT_EQ(OH_JSVM_CloseEnvScope(env, es), JSVM_OK);
+        ASSERT_EQ(OH_JSVM_CloseVMScope(vm, vs), JSVM_OK);
+        t2Done.store(true);
+    });
+
+    t1.join();
+    t2.join();
+    ASSERT_TRUE(t2Success.load()) << "Thread2 should perform API calls successfully after handoff";
+}
