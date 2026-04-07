@@ -130,6 +130,10 @@ do_opt_process() {
             export DEPENDENCY_TAG=$2
             shift
             ;;
+        --depfile)
+            export DEPFILE=$2
+            shift
+            ;;
         -I*)
             export INCLUDE_DIRS="${INCLUDE_DIRS} -I${LIB_ROOT_DIR}/${1#-I}"
             ;;
@@ -141,3 +145,18 @@ do_opt_process() {
 }
 
 do_man_process $@
+
+# Generate depfile for GN: list all source and header files as dependencies
+# so GN knows to re-run this action when any source file changes.
+if [ -n "${DEPFILE}" ] && [ -n "${JSVM_PATH}" ] && [ -n "${TARGET_GEN_DIR}" ]; then
+    if [[ "${IS_ASAN}" = "true" && "${USE_HWASEN}" = "true" ]]; then
+        output_so="${TARGET_GEN_DIR}/asan/libjsvm.so"
+    else
+        output_so="${TARGET_GEN_DIR}/libjsvm.so"
+    fi
+    deps=$(find "${JSVM_PATH}/src" "${JSVM_PATH}/interface" \
+        \( -name "*.cpp" -o -name "*.h" \) -type f 2>/dev/null | tr '\n' ' ')
+    deps="${deps} ${JSVM_PATH}/CMakeLists.txt ${JSVM_PATH}/jsvm.gni"
+    deps="${deps} ${JSVM_PATH}/build_jsvm.sh ${JSVM_PATH}/build_jsvm_inter.sh"
+    echo "${output_so}: ${deps}" > "${DEPFILE}"
+fi

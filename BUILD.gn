@@ -141,6 +141,28 @@ action("build_libjsvm") {
   configs = []
   script = "build_jsvm.sh"
   sources = []
+
+  # Two-layer dependency tracking for GN to detect source file changes:
+  #
+  # 1. `depfile` (dynamic): After each build, build_jsvm.sh generates a .d file
+  #    listing all .cpp/.h files found via `find`. This catches modifications to
+  #    EXISTING files automatically with zero maintenance.
+  #
+  # 2. `inputs` (static): Lists config files that MUST change when new source
+  #    files are added (CMakeLists.txt, jsvm.gni). This catches NEW file additions
+  #    that aren't yet in the depfile from the previous build.
+  #
+  # Together they cover all scenarios:
+  #   - Modify existing .cpp/.h → depfile triggers rebuild
+  #   - Add new .cpp/.h → CMakeLists.txt must change → inputs triggers rebuild
+  #   - Change build config → inputs triggers rebuild
+  depfile = "$target_gen_dir/libjsvm.d"
+  inputs = [
+    "CMakeLists.txt",
+    "jsvm.gni",
+    "build_jsvm.sh",
+    "build_jsvm_inter.sh",
+  ]
   support_and_use_hwasan = support_hwasan && use_hwasan
   if (is_asan && support_and_use_hwasan) {
     outputs = [ "$target_gen_dir/asan/libjsvm.so" ]
@@ -171,6 +193,8 @@ action("build_libjsvm") {
     "${dependency_tag}",
     "--jsvm_path",
     rebase_path("."),
+    "--depfile",
+    rebase_path("$target_gen_dir/libjsvm.d"),
   ]
   if (use_clang_coverage) {
     args += [
