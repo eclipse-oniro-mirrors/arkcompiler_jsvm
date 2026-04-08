@@ -4116,6 +4116,7 @@ JSVM_Status OH_JSVM_CreateArrayBufferFromExternalMemory(JSVM_Env env,
                                                         JSVM_Value* result)
 {
     JSVM_PREAMBLE(env);
+    JSVM_TRACK_API_USE();
     CHECK_ARG(env, result);
     if (byteLength > 0) {
         CHECK_ARG(env, externalData);
