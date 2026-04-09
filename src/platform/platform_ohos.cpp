@@ -289,6 +289,27 @@ void WriteHisysevent(HiSysEventParam* params, int size)
                         params, size);
 }
 
+void WriteAPIUseToHisysevent(const char *apiName)
+{
+#ifdef ENABLE_HISYSEVENT
+    std::unique_ptr<char[]> name = ProcessBundleNameParam();
+    HiSysEventParam param = {
+        .name = "BUNDLE_NAME",
+        .t = HISYSEVENT_STRING,
+        .v = { .s = name.get() },
+        .arraySize = 0,
+    };
+    HiSysEventParam extraParam = {
+        .name = "API_NAME",
+        .t = HISYSEVENT_STRING,
+        .v = { .s = const_cast<char*>(apiName) },
+        .arraySize = 0,
+    };
+    HiSysEventParam params[] = { param, extraParam };
+    WriteHisysevent(params, sizeof(params) / sizeof(params[0]));
+#endif
+}
+
 void WriteJSVMInitToHisysevent()
 {
 #ifdef ENABLE_HISYSEVENT

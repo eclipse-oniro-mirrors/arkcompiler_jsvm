@@ -31,6 +31,23 @@
 #define OHOS_SELECT(expr_ohos, expr_non_ohos) expr_non_ohos
 #endif
 
+// Track first-time API usage per process. When a JSVM API annotated with this
+// macro is called for the first time, the API name is reported via HiSysEvent.
+// Uses std::call_once for thread safety and zero overhead after first call.
+// __func__ is captured outside the lambda to ensure it resolves to the
+// enclosing function name (the JSVM API), not the lambda's operator().
+#ifdef TARGET_OHOS
+#define JSVM_TRACK_API_USE()                                                                             \
+    do {                                                                                                 \
+        static std::once_flag _jsvm_api_track_flag;                                                      \
+        const char* _jsvm_api_name = __func__;                                                           \
+        std::call_once(_jsvm_api_track_flag,                                                             \
+                       [_jsvm_api_name]() { platform::ohos::WriteAPIUseToHisysevent(_jsvm_api_name); }); \
+    } while (0)
+#else
+#define JSVM_TRACK_API_USE() ((void)0)
+#endif
+
 namespace platform {
 class OS {
 public:

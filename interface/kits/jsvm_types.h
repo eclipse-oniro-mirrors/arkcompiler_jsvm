@@ -173,6 +173,25 @@ typedef JSVM_CallbackStruct* JSVM_Callback;
  */
 typedef void(JSVM_CDECL* JSVM_Finalize)(JSVM_Env env, void* finalizeData, void* finalizeHint);
 
+#ifdef JSVM_EXPERIMENTAL
+/**
+ * @brief Finalize callback for ArrayBuffers created from external memory.
+ *
+ * Similar to JSVM_Finalize, but includes a copied parameter indicating whether the
+ * engine copied the external data into an internal buffer (true) or used zero-copy (false).
+ * When copied is true, the engine does not hold a reference to the original external data,
+ * so the caller may free it immediately after the API call returns. When copied is false,
+ * finalizeData points to the original external memory that the engine is releasing — the
+ * callback should free it.
+ *
+ * @since 26
+ */
+typedef void(JSVM_CDECL* JSVM_FinalizeArrayBuffer)(JSVM_Env env,
+                                                     void* finalizeData,
+                                                     void* finalizeHint,
+                                                     bool copied);
+#endif // JSVM_EXPERIMENTAL
+
 /**
  * @brief Function pointer type for callback of ASCII output stream.
  *

@@ -24,6 +24,7 @@
 #include <thread>
 #include <vector>
 
+#define JSVM_EXPERIMENTAL
 #include "jsvm.h"
 #include "jsvm_types.h"
 #include "jsvm_utils.h"
@@ -185,9 +186,9 @@ public:
     void SetUp() override
     {
         OH_JSVM_CreateVM(nullptr, &vm);
+        OH_JSVM_OpenVMScope(vm, &vm_scope);
         // propertyCount is 3
         OH_JSVM_CreateEnv(vm, 3, property_descriptors, &env);
-        OH_JSVM_OpenVMScope(vm, &vm_scope);
         OH_JSVM_OpenEnvScope(env, &env_scope);
         jsvm_env = env;
     }
@@ -195,8 +196,8 @@ public:
     {
         GTEST_LOG_(INFO) << "JSVMTest TearDown";
         OH_JSVM_CloseEnvScope(env, env_scope);
-        OH_JSVM_CloseVMScope(vm, vm_scope);
         OH_JSVM_DestroyEnv(env);
+        OH_JSVM_CloseVMScope(vm, vm_scope);
         OH_JSVM_DestroyVM(vm);
     }
 
@@ -244,9 +245,9 @@ public:
     void SetUp() override
     {
         OH_JSVM_CreateVM(nullptr, &vm);
+        OH_JSVM_OpenVMScope(vm, &vm_scope);
         // propertyCount is 3
         OH_JSVM_CreateEnv(vm, 3, property_descriptors, &env);
-        OH_JSVM_OpenVMScope(vm, &vm_scope);
         OH_JSVM_OpenEnvScope(env, &env_scope);
         OH_JSVM_OpenHandleScope(env, &handleScope);
         jsvm_env = env;
@@ -256,8 +257,8 @@ public:
         GTEST_LOG_(INFO) << "JSVMTest TearDown";
         OH_JSVM_CloseHandleScope(env, handleScope);
         OH_JSVM_CloseEnvScope(env, env_scope);
-        OH_JSVM_CloseVMScope(vm, vm_scope);
         OH_JSVM_DestroyEnv(env);
+        OH_JSVM_CloseVMScope(vm, vm_scope);
         OH_JSVM_DestroyVM(vm);
     }
 
@@ -270,8 +271,8 @@ public:
         JSVM_HandleScope handleScope;
 
         OH_JSVM_CreateVM(nullptr, &vm);
-        OH_JSVM_CreateEnv(vm, 0, nullptr, &env);
         OH_JSVM_OpenVMScope(vm, &vm_scope);
+        OH_JSVM_CreateEnv(vm, 0, nullptr, &env);
         OH_JSVM_OpenEnvScope(env, &env_scope);
         OH_JSVM_OpenHandleScope(env, &handleScope);
 
@@ -286,8 +287,8 @@ public:
 
         OH_JSVM_CloseHandleScope(env, handleScope);
         OH_JSVM_CloseEnvScope(env, env_scope);
-        OH_JSVM_CloseVMScope(vm, vm_scope);
         OH_JSVM_DestroyEnv(env);
+        OH_JSVM_CloseVMScope(vm, vm_scope);
         OH_JSVM_DestroyVM(vm);
     }
 
@@ -1839,6 +1840,336 @@ HWTEST_F(JSVMTest, JSVMCreateRegExp, TestSize.Level1)
     jsvm::SetProperty(jsvm::Global(), "regExp", jsvm::Undefined());
 
     JSVMTEST_CALL(OH_JSVM_CloseHandleScope(env, handle));
+}
+
+// OH_JSVM_CreateArrayBufferFromExternalMemory tests
+HWTEST_F(JSVMTest, ExternalArrayBuffer_Basic, TestSize.Level1)
+{
+    // Create 8-byte aligned external memory with known pattern
+    alignas(8) uint8_t data[64];
+    for (int i = 0; i < sizeof(data); i++) {
+        data[i] = static_cast<uint8_t>(i);
+    }
+
+    JSVM_Value ab = nullptr;
+    bool wasCopied = false;
+    JSVMTEST_CALL(
+        OH_JSVM_CreateArrayBufferFromExternalMemory(env, data, sizeof(data), nullptr, nullptr, &wasCopied, &ab));
+
+    // Verify it's an ArrayBuffer with correct size
+    bool isArrayBuffer = false;
+    JSVMTEST_CALL(OH_JSVM_IsArraybuffer(env, ab, &isArrayBuffer));
+    ASSERT_TRUE(isArrayBuffer);
+
+    void* abData = nullptr;
+    size_t abLen = 0;
+    JSVMTEST_CALL(OH_JSVM_GetArraybufferInfo(env, ab, &abData, &abLen));
+    ASSERT_EQ(abLen, sizeof(data));
+
+    // Verify data content is accessible
+    auto* bytes = static_cast<uint8_t*>(abData);
+    for (int i = 0; i < 64; i++) {
+        ASSERT_EQ(bytes[i], static_cast<uint8_t>(i));
+    }
+}
+
+HWTEST_F(JSVMTest, ExternalArrayBuffer_FinalizeOnGC, TestSize.Level1)
+{
+    // Verify finalizeCb is called when the ArrayBuffer is garbage collected
+    static std::atomic<bool> finalized { false };
+    static void* finalizedData = nullptr;
+    finalized = false;
+    finalizedData = nullptr;
+
+    alignas(8) uint8_t data[32];
+    for (int i = 0; i < sizeof(data); i++) {
+        data[i] = 0xAB;
+    }
+
+    {
+        JSVM_HandleScope scope = nullptr;
+        JSVMTEST_CALL(OH_JSVM_OpenHandleScope(env, &scope));
+
+        JSVM_Value ab = nullptr;
+        JSVMTEST_CALL(OH_JSVM_CreateArrayBufferFromExternalMemory(
+            env, data, sizeof(data),
+            [](JSVM_Env, void* d, void*, bool) {
+                finalized = true;
+                finalizedData = d;
+            },
+            nullptr, nullptr, &ab));
+
+        JSVMTEST_CALL(OH_JSVM_CloseHandleScope(env, scope));
+    }
+
+    // Trigger GC to collect the ArrayBuffer
+    JSVMTEST_CALL(OH_JSVM_MemoryPressureNotification(env, JSVM_MEMORY_PRESSURE_LEVEL_LOW_MEMORY));
+
+    ASSERT_TRUE(finalized.load()) << "Finalize callback must be called after GC";
+    ASSERT_EQ(finalizedData, static_cast<void*>(data));
+}
+
+HWTEST_F(JSVMTest, ExternalArrayBuffer_InvalidArgs, TestSize.Level1)
+{
+    JSVM_Value ab = nullptr;
+
+    // null result
+    ASSERT_EQ(OH_JSVM_CreateArrayBufferFromExternalMemory(env, nullptr, 0, nullptr, nullptr, nullptr, nullptr),
+              JSVM_INVALID_ARG);
+
+    // null externalData with byteLength > 0
+    ASSERT_EQ(OH_JSVM_CreateArrayBufferFromExternalMemory(env, nullptr, 1024, nullptr, nullptr, nullptr, &ab),
+              JSVM_INVALID_ARG);
+
+    // misaligned pointer (offset by 1 byte)
+    alignas(8) uint8_t buf[64];
+    void* misaligned = buf + 1;
+    ASSERT_EQ(OH_JSVM_CreateArrayBufferFromExternalMemory(env, misaligned, 32, nullptr, nullptr, nullptr, &ab),
+              JSVM_INVALID_ARG);
+}
+
+HWTEST_F(JSVMTest, ExternalArrayBuffer_ZeroLength, TestSize.Level1)
+{
+    // Zero-length buffer with nullptr is valid
+    JSVM_Value ab = nullptr;
+    bool wasCopied = false;
+    JSVMTEST_CALL(OH_JSVM_CreateArrayBufferFromExternalMemory(env, nullptr, 0, nullptr, nullptr, &wasCopied, &ab));
+
+    bool isArrayBuffer = false;
+    JSVMTEST_CALL(OH_JSVM_IsArraybuffer(env, ab, &isArrayBuffer));
+    ASSERT_TRUE(isArrayBuffer);
+
+    size_t len = 0;
+    JSVMTEST_CALL(OH_JSVM_GetArraybufferInfo(env, ab, nullptr, &len));
+    ASSERT_EQ(len, 0u);
+}
+
+HWTEST_F(JSVMTest, ExternalArrayBuffer_TypedArrayView, TestSize.Level1)
+{
+    // Create external memory and wrap as Int32Array
+    alignas(8) int32_t values[4] = { 10, 20, 30, 40 };
+
+    JSVM_Value ab = nullptr;
+    JSVMTEST_CALL(
+        OH_JSVM_CreateArrayBufferFromExternalMemory(env, values, sizeof(values), nullptr, nullptr, nullptr, &ab));
+
+    // Create Int32Array view over the ArrayBuffer
+    JSVM_Value typedArray = nullptr;
+    JSVMTEST_CALL(OH_JSVM_CreateTypedarray(env, JSVM_INT32_ARRAY, 4, ab, 0, &typedArray));
+
+    bool isTypedArray = false;
+    JSVMTEST_CALL(OH_JSVM_IsTypedarray(env, typedArray, &isTypedArray));
+    ASSERT_TRUE(isTypedArray);
+
+    // Read values through the TypedArray using JS
+    jsvm::SetProperty(jsvm::Global(), "_ta", typedArray);
+    JSVM_Value result = jsvm::Run("_ta[0] + _ta[1] + _ta[2] + _ta[3]");
+    ASSERT_TRUE(jsvm::IsNumber(result));
+    int32_t sum = 0;
+    JSVMTEST_CALL(OH_JSVM_GetValueInt32(env, result, &sum));
+    ASSERT_EQ(sum, 100); // 10 + 20 + 30 + 40
+    jsvm::SetProperty(jsvm::Global(), "_ta", jsvm::Undefined());
+}
+
+// Verify isCopied flag and zero-copy vs copy behavior
+HWTEST_F(JSVMTest, ExternalArrayBuffer_ZeroCopyVerification, TestSize.Level1)
+{
+    alignas(8) uint8_t data[128];
+    for (int i = 0; i < sizeof(data); i++) {
+        data[i] = static_cast<uint8_t>(i);
+    }
+
+    JSVM_Value ab = nullptr;
+    bool wasCopied = false;
+    JSVMTEST_CALL(
+        OH_JSVM_CreateArrayBufferFromExternalMemory(env, data, sizeof(data), nullptr, nullptr, &wasCopied, &ab));
+
+    void* abData = nullptr;
+    size_t abLen = 0;
+    JSVMTEST_CALL(OH_JSVM_GetArraybufferInfo(env, ab, &abData, &abLen));
+    ASSERT_EQ(abLen, sizeof(data));
+
+    if (wasCopied) {
+        // Copy mode (sandbox): ArrayBuffer data pointer != original pointer.
+        ASSERT_NE(abData, static_cast<void*>(data)) << "In copy mode, ArrayBuffer data should be a different buffer";
+        // But content should be identical.
+        ASSERT_EQ(memcmp(abData, data, sizeof(data)), 0) << "Copied data content should match original";
+        // Mutating the original should NOT affect the ArrayBuffer.
+        data[0] = 0xFF;
+        auto* bytes = static_cast<uint8_t*>(abData);
+        ASSERT_NE(bytes[0], 0xFF) << "Copy mode: original mutation should not affect ArrayBuffer";
+    } else {
+        // Zero-copy mode (no sandbox): ArrayBuffer data pointer == original pointer.
+        ASSERT_EQ(abData, static_cast<void*>(data))
+            << "In zero-copy mode, ArrayBuffer should reference original memory";
+        // Mutating the original SHOULD affect the ArrayBuffer.
+        data[0] = 0xFF;
+        auto* bytes = static_cast<uint8_t*>(abData);
+        ASSERT_EQ(bytes[0], 0xFF) << "Zero-copy mode: original mutation should be visible via ArrayBuffer";
+        // Restore for cleanup.
+        data[0] = 0;
+    }
+}
+
+// Verify zero-copy: JS mutation visible in C++ external memory
+HWTEST_F(JSVMTest, ExternalArrayBuffer_JSMutationVisibility, TestSize.Level1)
+{
+    alignas(8) int32_t values[4] = { 1, 2, 3, 4 };
+
+    JSVM_Value ab = nullptr;
+    bool wasCopied = false;
+    JSVMTEST_CALL(
+        OH_JSVM_CreateArrayBufferFromExternalMemory(env, values, sizeof(values), nullptr, nullptr, &wasCopied, &ab));
+
+    // Create Int32Array and mutate via JS
+    JSVM_Value typedArray = nullptr;
+    JSVMTEST_CALL(OH_JSVM_CreateTypedarray(env, JSVM_INT32_ARRAY, 4, ab, 0, &typedArray));
+    jsvm::SetProperty(jsvm::Global(), "_arr", typedArray);
+    jsvm::Run("_arr[0] = 100; _arr[3] = 400;");
+
+    if (!wasCopied) {
+        // In zero-copy mode, JS mutations should be visible in the original C++ memory.
+        ASSERT_EQ(values[0], 100) << "Zero-copy: JS write should be visible in C++ memory";
+        ASSERT_EQ(values[3], 400) << "Zero-copy: JS write should be visible in C++ memory";
+        ASSERT_EQ(values[1], 2) << "Untouched elements should remain unchanged";
+    } else {
+        // In copy mode, JS mutations do NOT affect the original C++ memory.
+        ASSERT_EQ(values[0], 1) << "Copy mode: JS write should NOT affect original memory";
+        ASSERT_EQ(values[3], 4) << "Copy mode: JS write should NOT affect original memory";
+
+        // But the ArrayBuffer's own data should have the mutation.
+        void* abData = nullptr;
+        size_t abLen = 0;
+        JSVMTEST_CALL(OH_JSVM_GetArraybufferInfo(env, ab, &abData, &abLen));
+        auto* abValues = static_cast<int32_t*>(abData);
+        ASSERT_EQ(abValues[0], 100) << "Copy mode: JS write visible in AB's internal buffer";
+        ASSERT_EQ(abValues[3], 400);
+    }
+    jsvm::SetProperty(jsvm::Global(), "_arr", jsvm::Undefined());
+}
+
+// Compare behavior: OH_JSVM_CreateArraybuffer vs OH_JSVM_CreateArrayBufferFromExternalMemory
+HWTEST_F(JSVMTest, ExternalArrayBuffer_CompareWithCreateArraybuffer, TestSize.Level1)
+{
+    // 1. OH_JSVM_CreateArraybuffer: creates engine-managed, zero-initialized buffer.
+    JSVM_Value ab1 = nullptr;
+    void* data1 = nullptr;
+    JSVMTEST_CALL(OH_JSVM_CreateArraybuffer(env, 32, &data1, &ab1));
+
+    // Data should be zero-initialized.
+    auto* bytes1 = static_cast<uint8_t*>(data1);
+    for (int i = 0; i < 32; i++) {
+        ASSERT_EQ(bytes1[i], 0) << "CreateArraybuffer should be zero-initialized at index " << i;
+    }
+
+    // 2. OH_JSVM_CreateArrayBufferFromExternalMemory: contains external data.
+    alignas(8) uint8_t extData[32];
+    for (int i = 0; i < 32; i++) {
+        extData[i] = static_cast<uint8_t>(i + 1);
+    }
+
+    JSVM_Value ab2 = nullptr;
+    bool wasCopied = false;
+    JSVMTEST_CALL(OH_JSVM_CreateArrayBufferFromExternalMemory(env, extData, 32, nullptr, nullptr, &wasCopied, &ab2));
+
+    void* data2 = nullptr;
+    size_t len2 = 0;
+    JSVMTEST_CALL(OH_JSVM_GetArraybufferInfo(env, ab2, &data2, &len2));
+
+    // Data should contain the external pattern (non-zero).
+    auto* bytes2 = static_cast<uint8_t*>(data2);
+    for (int i = 0; i < 32; i++) {
+        ASSERT_EQ(bytes2[i], static_cast<uint8_t>(i + 1))
+            << "ExternalArrayBuffer should contain original data at index " << i;
+    }
+
+    // 3. Both are valid ArrayBuffers from JS perspective.
+    jsvm::SetProperty(jsvm::Global(), "_ab1", ab1);
+    jsvm::SetProperty(jsvm::Global(), "_ab2", ab2);
+
+    // Both should have correct byteLength.
+    JSVM_Value lenResult1 = jsvm::Run("_ab1.byteLength");
+    JSVM_Value lenResult2 = jsvm::Run("_ab2.byteLength");
+    int32_t jsLen1 = 0;
+    int32_t jsLen2 = 0;
+    JSVMTEST_CALL(OH_JSVM_GetValueInt32(env, lenResult1, &jsLen1));
+    JSVMTEST_CALL(OH_JSVM_GetValueInt32(env, lenResult2, &jsLen2));
+    ASSERT_EQ(jsLen1, 32);
+    ASSERT_EQ(jsLen2, 32);
+
+    // Both should be instanceof ArrayBuffer.
+    JSVM_Value isAB1 = jsvm::Run("_ab1 instanceof ArrayBuffer");
+    JSVM_Value isAB2 = jsvm::Run("_ab2 instanceof ArrayBuffer");
+    bool bIsAB1 = false;
+    bool bIsAB2 = false;
+    JSVMTEST_CALL(OH_JSVM_GetValueBool(env, isAB1, &bIsAB1));
+    JSVMTEST_CALL(OH_JSVM_GetValueBool(env, isAB2, &bIsAB2));
+    ASSERT_TRUE(bIsAB1);
+    ASSERT_TRUE(bIsAB2);
+
+    // Both should support Uint8Array views.
+    JSVM_Value viewCheck = jsvm::Run(R"(
+        var v1 = new Uint8Array(_ab1);
+        var v2 = new Uint8Array(_ab2);
+        v1.length === 32 && v2.length === 32
+    )");
+    bool viewOk = false;
+    JSVMTEST_CALL(OH_JSVM_GetValueBool(env, viewCheck, &viewOk));
+    ASSERT_TRUE(viewOk) << "Both ArrayBuffers should support TypedArray views";
+
+    // Both should be detachable.
+    bool isDetached1 = false;
+    bool isDetached2 = false;
+    JSVMTEST_CALL(OH_JSVM_DetachArraybuffer(env, ab1));
+    JSVMTEST_CALL(OH_JSVM_IsDetachedArraybuffer(env, ab1, &isDetached1));
+    ASSERT_TRUE(isDetached1);
+
+    JSVMTEST_CALL(OH_JSVM_DetachArraybuffer(env, ab2));
+    JSVMTEST_CALL(OH_JSVM_IsDetachedArraybuffer(env, ab2, &isDetached2));
+    ASSERT_TRUE(isDetached2);
+    jsvm::SetProperty(jsvm::Global(), "_ab1", jsvm::Undefined());
+    jsvm::SetProperty(jsvm::Global(), "_ab2", jsvm::Undefined());
+}
+
+// Verify JSVM_FinalizeArrayBuffer's copied parameter matches the API's copied output
+HWTEST_F(JSVMTest, ExternalArrayBuffer_FinalizeCopiedConsistency, TestSize.Level1)
+{
+    static std::atomic<bool> finalizeCalled { false };
+    static bool finalizeCopiedValue = false;
+    finalizeCalled = false;
+    finalizeCopiedValue = false;
+
+    bool apiCopiedValue = false;
+
+    alignas(8) uint8_t data[64];
+    for (size_t i = 0; i < sizeof(data); i++) {
+        data[i] = static_cast<uint8_t>(i);
+    }
+
+    {
+        JSVM_HandleScope scope = nullptr;
+        JSVMTEST_CALL(OH_JSVM_OpenHandleScope(env, &scope));
+
+        JSVM_Value ab = nullptr;
+        JSVMTEST_CALL(OH_JSVM_CreateArrayBufferFromExternalMemory(
+            env, data, sizeof(data),
+            [](JSVM_Env, void*, void*, bool copied) {
+                finalizeCalled = true;
+                finalizeCopiedValue = copied;
+            },
+            nullptr, &apiCopiedValue, &ab));
+
+        JSVMTEST_CALL(OH_JSVM_CloseHandleScope(env, scope));
+    }
+
+    // Trigger GC
+    JSVMTEST_CALL(OH_JSVM_MemoryPressureNotification(env, JSVM_MEMORY_PRESSURE_LEVEL_LOW_MEMORY));
+
+    ASSERT_TRUE(finalizeCalled.load()) << "Finalize callback must be called after GC";
+    ASSERT_EQ(finalizeCopiedValue, apiCopiedValue)
+        << "FinalizeArrayBuffer's copied param must match API's copied output. "
+        << "API returned copied=" << apiCopiedValue
+        << ", finalizeCb received copied=" << finalizeCopiedValue;
 }
 
 HWTEST_F(JSVMTest, JSVMUseLargeMemory, TestSize.Level1)

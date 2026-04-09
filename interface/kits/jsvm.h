@@ -3231,6 +3231,55 @@ JSVM_EXTERN JSVM_Status OH_JSVM_BackgroundDeserialize(
  */
 JSVM_EXTERN JSVM_Status OH_JSVM_ReleaseDeserializeResult(JSVM_DeserializeResult result);
 
+#ifdef JSVM_EXPERIMENTAL
+/**
+ * @brief Creates a JavaScript ArrayBuffer whose content is initialized from user-provided
+ * external memory. The implementation may either directly reference the external memory
+ * (zero-copy) or copy the data into an internally managed buffer, depending on engine
+ * implementation.
+ *
+ * When zero-copy is used, the ArrayBuffer directly references the external memory. The
+ * caller must NOT free it before the finalize callback is invoked.
+ *
+ * When a copy occurs, the data is copied into engine-managed memory. The copied output
+ * parameter is set to true so the caller knows their memory is no longer
+ * referenced. The resulting ArrayBuffer's data pointer (from OH_JSVM_GetArraybufferInfo)
+ * will differ from externalData.
+ *
+ * @param env The environment that the API is invoked under.
+ * @param externalData Pointer to the source memory block. Must be 8-byte aligned.
+ *                     Can be nullptr only if byteLength is 0.
+ * @param byteLength The length in bytes of the source memory block. Must not exceed the
+ *                   engine's maximum ArrayBuffer size.
+ * @param finalizeCb Optional callback invoked when the ArrayBuffer object created by this
+ *                   API is garbage collected. The callback receives the original externalData
+ *                   pointer, finalizeHint, and a boolean indicating whether the data was copied.
+ *                   When copied is true, the engine does not reference externalData and the
+ *                   caller may free it immediately after this API returns. When copied is
+ *                   false (zero-copy), externalData is still in use and should only be freed
+ *                   in this callback. Can be NULL if no cleanup is needed.
+ * @param finalizeHint Optional hint passed to finalizeCb. Can be NULL.
+ * @param copied Optional output parameter. If non-NULL, set to true when data was copied
+ *               into an internal buffer, or false when zero-copy was used. Pass NULL if
+ *               the caller does not need this information.
+ * @param result A JSVM_Value representing the created JavaScript ArrayBuffer.
+ * @return Returns JSVM funtions result code.
+ *         Returns {@link JSVM_OK } if creation succeeded.\n
+ *         Returns {@link JSVM_INVALID_ARG } if result is null, externalData is null when
+ *         byteLength > 0, externalData is not 8-byte aligned, or byteLength exceeds the
+ *         engine's maximum ArrayBuffer size.\n
+ *
+ * @since 26
+ */
+JSVM_EXTERN JSVM_Status OH_JSVM_CreateArrayBufferFromExternalMemory(JSVM_Env env,
+                                                                    void* externalData,
+                                                                    size_t byteLength,
+                                                                    JSVM_FinalizeArrayBuffer finalizeCb,
+                                                                    void* finalizeHint,
+                                                                    bool* copied,
+                                                                    JSVM_Value* result);
+#endif // JSVM_EXPERIMENTAL
+
 // clang-format on
 EXTERN_C_END
 

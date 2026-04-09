@@ -40,6 +40,8 @@ void WriteJSVMInitToHisysevent();
 
 void WriteJitBlockedToHisysevent();
 
+void WriteAPIUseToHisysevent(const char *apiName);
+
 bool InJitMode();
 } // namespace ohos
 } // namespace platform
