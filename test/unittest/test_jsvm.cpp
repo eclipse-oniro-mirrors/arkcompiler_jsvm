@@ -1893,7 +1893,7 @@ HWTEST_F(JSVMTest, ExternalArrayBuffer_FinalizeOnGC, TestSize.Level1)
         JSVM_Value ab = nullptr;
         JSVMTEST_CALL(OH_JSVM_CreateArrayBufferFromExternalMemory(
             env, data, sizeof(data),
-            [](JSVM_Env, void* d, void*) {
+            [](JSVM_Env, void* d, void*, bool) {
                 finalized = true;
                 finalizedData = d;
             },
@@ -2129,6 +2129,47 @@ HWTEST_F(JSVMTest, ExternalArrayBuffer_CompareWithCreateArraybuffer, TestSize.Le
     ASSERT_TRUE(isDetached2);
     jsvm::SetProperty(jsvm::Global(), "_ab1", jsvm::Undefined());
     jsvm::SetProperty(jsvm::Global(), "_ab2", jsvm::Undefined());
+}
+
+// Verify JSVM_FinalizeArrayBuffer's copied parameter matches the API's copied output
+HWTEST_F(JSVMTest, ExternalArrayBuffer_FinalizeCopiedConsistency, TestSize.Level1)
+{
+    static std::atomic<bool> finalizeCalled { false };
+    static bool finalizeCopiedValue = false;
+    finalizeCalled = false;
+    finalizeCopiedValue = false;
+
+    bool apiCopiedValue = false;
+
+    alignas(8) uint8_t data[64];
+    for (size_t i = 0; i < sizeof(data); i++) {
+        data[i] = static_cast<uint8_t>(i);
+    }
+
+    {
+        JSVM_HandleScope scope = nullptr;
+        JSVMTEST_CALL(OH_JSVM_OpenHandleScope(env, &scope));
+
+        JSVM_Value ab = nullptr;
+        JSVMTEST_CALL(OH_JSVM_CreateArrayBufferFromExternalMemory(
+            env, data, sizeof(data),
+            [](JSVM_Env, void*, void*, bool copied) {
+                finalizeCalled = true;
+                finalizeCopiedValue = copied;
+            },
+            nullptr, &apiCopiedValue, &ab));
+
+        JSVMTEST_CALL(OH_JSVM_CloseHandleScope(env, scope));
+    }
+
+    // Trigger GC
+    JSVMTEST_CALL(OH_JSVM_MemoryPressureNotification(env, JSVM_MEMORY_PRESSURE_LEVEL_LOW_MEMORY));
+
+    ASSERT_TRUE(finalizeCalled.load()) << "Finalize callback must be called after GC";
+    ASSERT_EQ(finalizeCopiedValue, apiCopiedValue)
+        << "FinalizeArrayBuffer's copied param must match API's copied output. "
+        << "API returned copied=" << apiCopiedValue
+        << ", finalizeCb received copied=" << finalizeCopiedValue;
 }
 
 HWTEST_F(JSVMTest, JSVMUseLargeMemory, TestSize.Level1)

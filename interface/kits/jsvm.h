@@ -3253,7 +3253,11 @@ JSVM_EXTERN JSVM_Status OH_JSVM_ReleaseDeserializeResult(JSVM_DeserializeResult 
  *                   engine's maximum ArrayBuffer size.
  * @param finalizeCb Optional callback invoked when the ArrayBuffer object created by this
  *                   API is garbage collected. The callback receives the original externalData
- *                   pointer and finalizeHint. Can be NULL if no cleanup is needed.
+ *                   pointer, finalizeHint, and a boolean indicating whether the data was copied.
+ *                   When copied is true, the engine does not reference externalData and the
+ *                   caller may free it immediately after this API returns. When copied is
+ *                   false (zero-copy), externalData is still in use and should only be freed
+ *                   in this callback. Can be NULL if no cleanup is needed.
  * @param finalizeHint Optional hint passed to finalizeCb. Can be NULL.
  * @param copied Optional output parameter. If non-NULL, set to true when data was copied
  *               into an internal buffer, or false when zero-copy was used. Pass NULL if
@@ -3270,7 +3274,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_ReleaseDeserializeResult(JSVM_DeserializeResult 
 JSVM_EXTERN JSVM_Status OH_JSVM_CreateArrayBufferFromExternalMemory(JSVM_Env env,
                                                                     void* externalData,
                                                                     size_t byteLength,
-                                                                    JSVM_Finalize finalizeCb,
+                                                                    JSVM_FinalizeArrayBuffer finalizeCb,
                                                                     void* finalizeHint,
                                                                     bool* copied,
                                                                     JSVM_Value* result);

@@ -4100,17 +4100,18 @@ JSVM_Status OH_JSVM_CreateArrayBufferFromBackingStoreData(JSVM_Env env,
 namespace {
 struct ExternalArrayBufferCallbackInfo {
     JSVM_Env env;
-    JSVM_Finalize finalizeCb;
+    JSVM_FinalizeArrayBuffer finalizeCb;
     void* externalData;
     void* finalizeHint;
     size_t byteLength;
+    bool copied;
 };
 } // namespace
 
 JSVM_Status OH_JSVM_CreateArrayBufferFromExternalMemory(JSVM_Env env,
                                                         void* externalData,
                                                         size_t byteLength,
-                                                        JSVM_Finalize finalizeCb,
+                                                        JSVM_FinalizeArrayBuffer finalizeCb,
                                                         void* finalizeHint,
                                                         bool* copied,
                                                         JSVM_Value* result)
@@ -4150,18 +4151,25 @@ JSVM_Status OH_JSVM_CreateArrayBufferFromExternalMemory(JSVM_Env env,
     if (copied != nullptr) {
         *copied = true;
     }
+    // Notify V8 about external memory for GC pressure (sandbox mode).
+    // The user's original external data still exists until finalizeCb releases it.
+    if (finalizeCb != nullptr && byteLength > 0) {
+        env->isolate->AdjustAmountOfExternalAllocatedMemory(static_cast<int64_t>(byteLength));
+    }
 #else
     v8::BackingStore::DeleterCallback deleter = nullptr;
     void* deleterData = nullptr;
     ExternalArrayBufferCallbackInfo* info = nullptr;
 
     if (finalizeCb != nullptr) {
-        info = new ExternalArrayBufferCallbackInfo{env, finalizeCb, externalData, finalizeHint, byteLength};
+        info = new ExternalArrayBufferCallbackInfo{env, finalizeCb, externalData, finalizeHint, byteLength, false};
         deleter = [](void* data, size_t length, void* deleterDataArg) {
             auto* cbInfo = static_cast<ExternalArrayBufferCallbackInfo*>(deleterDataArg);
             if (cbInfo->finalizeCb) {
                 cbInfo->env->CallIntoModule(
-                    [&](JSVM_Env env) { cbInfo->finalizeCb(env, cbInfo->externalData, cbInfo->finalizeHint); },
+                    [&](JSVM_Env env) {
+                        cbInfo->finalizeCb(env, cbInfo->externalData, cbInfo->finalizeHint, cbInfo->copied);
+                    },
                     JSVM_Env__::HandleThrow, false);
             }
             if (cbInfo->byteLength > 0) {
@@ -4196,14 +4204,21 @@ JSVM_Status OH_JSVM_CreateArrayBufferFromExternalMemory(JSVM_Env env,
     // but in sandbox mode we need an explicit weak reference since the data was copied.
 #ifdef V8_ENABLE_SANDBOX
     if (finalizeCb != nullptr) {
-        auto* ref = new ExternalArrayBufferCallbackInfo{env, finalizeCb, externalData, finalizeHint, byteLength};
+        auto* ref = new ExternalArrayBufferCallbackInfo{
+            env, finalizeCb, externalData, finalizeHint, byteLength, true};
         auto* persistent = new v8::Global<v8::Value>(env->isolate, arrayBuffer);
         persistent->SetWeak(ref, [persistent](const v8::WeakCallbackInfo<ExternalArrayBufferCallbackInfo>& data) {
             auto* cbInfo = data.GetParameter();
             if (cbInfo->finalizeCb) {
                 cbInfo->env->CallIntoModule(
-                    [&](JSVM_Env env) { cbInfo->finalizeCb(env, cbInfo->externalData, cbInfo->finalizeHint); },
+                    [&](JSVM_Env env) {
+                        cbInfo->finalizeCb(env, cbInfo->externalData, cbInfo->finalizeHint, cbInfo->copied);
+                    },
                     JSVM_Env__::HandleThrow, false);
+            }
+            if (cbInfo->byteLength > 0) {
+                cbInfo->env->isolate->AdjustAmountOfExternalAllocatedMemory(
+                    -static_cast<int64_t>(cbInfo->byteLength));
             }
             delete cbInfo;
             persistent->Reset();
