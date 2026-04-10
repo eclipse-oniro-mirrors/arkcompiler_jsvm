@@ -327,6 +327,52 @@ void WriteJitBlockedToHisysevent()
     WriteHisysevent(params, sizeof(params) / sizeof(params[0]));
 #endif
 }
+
+void WriteOOMErrorToHisysevent(const char* location, const char* detail, bool isHeapOOM, const char* heapStat)
+{
+#ifdef ENABLE_HISYSEVENT
+    std::unique_ptr<char[]> name = ProcessBundleNameParam();
+    HiSysEventParam modeuleName = {
+        .name = "MODEULE_NAME",
+        .t = HISYSEVENT_STRING,
+        .v = { .s = const_cast<char*>("JSVM") },
+        .arraySize = 0,
+    };
+    HiSysEventParam processName = {
+        .name = "PROCESS_NAME",
+        .t = HISYSEVENT_STRING,
+        .v = { .s = name.get() },
+        .arraySize = 0,
+    };
+    HiSysEventParam locationParam = {
+        .name = "OOM_LOCATION",
+        .t = HISYSEVENT_STRING,
+        .v = { .s = const_cast<char*>(location != nullptr ? location : "unknown") },
+        .arraySize = 0,
+    };
+    HiSysEventParam detailParam = {
+        .name = "OOM_DETAIL",
+        .t = HISYSEVENT_STRING,
+        .v = { .s = const_cast<char*>(detail != nullptr ? detail : "") },
+        .arraySize = 0,
+    };
+    HiSysEventParam heapOOMParam = {
+        .name = "IS_HEAP_OOM",
+        .t = HISYSEVENT_BOOL,
+        .v = { .b = isHeapOOM },
+        .arraySize = 0,
+    };
+    HiSysEventParam heapStatParam = {
+        .name = "DUMPJSONHEAP",
+        .t = HISYSEVENT_STRING,
+        .v = { .s = const_cast<char*>(heapStat != nullptr ? heapStat : "") },
+        .arraySize = 0,
+    };
+    HiSysEventParam params[] = { modeuleName, processName, locationParam,
+        detailParam, heapOOMParam, heapStatParam };
+    WriteHisysevent(params, sizeof(params) / sizeof(params[0]));
+#endif
+}
 } // namespace ohos
 
 } // namespace platform
