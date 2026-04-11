@@ -19,6 +19,7 @@
 #include <cmath>
 #include <cstring>
 #include <list>
+#include <sstream>
 #include <unistd.h>
 
 #include "v8-debug.h"
@@ -1102,6 +1103,13 @@ JSVM_Status OH_JSVM_GetVM(JSVM_Env env, JSVM_VM* result)
     return JSVM_OK;
 }
 
+static void OnJSVMOOMError(v8::Isolate* isolate, const char* location,
+                           const v8::OOMDetails& details, const char* heap_stat)
+{
+    // Report OOM error to HiSysEvent
+    platform::ohos::WriteOOMErrorToHisysevent(location, details.detail, details.is_heap_oom, heap_stat);
+}
+
 JSVM_Status OH_JSVM_CreateVM(const JSVM_CreateVMOptions* options, JSVM_VM* result)
 {
     OHOS_CALL(platform::ohos::ReportKeyThread(platform::ohos::ThreadRole::USER_INTERACT));
@@ -1137,6 +1145,7 @@ JSVM_Status OH_JSVM_CreateVM(const JSVM_CreateVMOptions* options, JSVM_VM* resul
     *result = reinterpret_cast<JSVM_VM>(isolate);
     // Create nullptr placeholder
     isolate->SetData(v8impl::K_ISOLATE_HANDLER_POOL_SLOT, nullptr);
+    isolate->SetOOMErrorHandlerWithIsolate(OnJSVMOOMError);
 
     return JSVM_OK;
 }
