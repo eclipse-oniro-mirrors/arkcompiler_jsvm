@@ -174,7 +174,7 @@ typedef JSVM_CallbackStruct* JSVM_Callback;
 typedef void(JSVM_CDECL* JSVM_Finalize)(JSVM_Env env, void* finalizeData, void* finalizeHint);
 
 /**
- * @brief Function pointer type for callback of ASCII output stream.
+ * @brief Function pointer type for callback of output stream.
  *
  * @since 12
  */
@@ -1029,5 +1029,15 @@ typedef enum {
  * @since 24
  */
 typedef struct JSVM_DeserializeResult__* JSVM_DeserializeResult;
+
+/**
+ * @brief Function pointer type for heap threshold callback.
+ *
+ * @param vm The VM instance whose heap usage reaches the threshold.
+ * @param threshold The heap usage threshold in bytes.
+ * @param data The native pointer data.
+ * @since 26.0.0
+ */
+typedef void(JSVM_CDECL* JSVM_HandlerForHeapThreshold)(JSVM_VM vm, uint64_t threshold, void* data);
 
 #endif /* ARK_RUNTIME_JSVM_JSVM_TYPE_H */
