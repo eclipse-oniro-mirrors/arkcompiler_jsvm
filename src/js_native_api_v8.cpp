@@ -4108,7 +4108,16 @@ JSVM_Status OH_JSVM_CreateArrayBufferFromBackingStoreData(JSVM_Env env,
 
 namespace {
 struct ExternalArrayBufferCallbackInfo {
-    JSVM_Env env;
+    ExternalArrayBufferCallbackInfo(v8::Isolate* isolate,
+                                    JSVM_FinalizeArrayBuffer finalizeCb,
+                                    void* externalData,
+                                    void* finalizeHint,
+                                    size_t byteLength,
+                                    bool copied)
+        : isolate(isolate), finalizeCb(finalizeCb), externalData(externalData),
+          finalizeHint(finalizeHint), byteLength(byteLength), copied(copied) {}
+
+    v8::Isolate* isolate;
     JSVM_FinalizeArrayBuffer finalizeCb;
     void* externalData;
     void* finalizeHint;
@@ -4148,6 +4157,15 @@ JSVM_Status OH_JSVM_CreateArrayBufferFromExternalMemory(JSVM_Env env,
         return SetLastError(env, JSVM_INVALID_ARG);
     }
 
+    // Reject finalizeCb for empty ArrayBuffers (byteLength=0).
+    // V8's BackingStore::~BackingStore() skips the deleter when buffer_start_==nullptr,
+    // which would leak the ExternalArrayBufferCallbackInfo and never call finalizeCb.
+    if (byteLength == 0 && finalizeCb != nullptr) {
+        LOG(Error) << "OH_JSVM_CreateArrayBufferFromExternalMemory: "
+                   << "finalizeCb is not allowed when byteLength is 0";
+        return SetLastError(env, JSVM_INVALID_ARG);
+    }
+
 #ifdef V8_ENABLE_SANDBOX
     static_assert(kMaxSafeBufferSizeForSandbox == v8::TypedArray::kMaxByteLength);
     // V8 sandbox requires ArrayBuffer backing store to reside inside the sandbox
@@ -4168,26 +4186,22 @@ JSVM_Status OH_JSVM_CreateArrayBufferFromExternalMemory(JSVM_Env env,
 #else
     v8::BackingStore::DeleterCallback deleter = nullptr;
     void* deleterData = nullptr;
-    ExternalArrayBufferCallbackInfo* info = nullptr;
 
+    std::unique_ptr<ExternalArrayBufferCallbackInfo> info;
     if (finalizeCb != nullptr) {
-        info = new ExternalArrayBufferCallbackInfo{env, finalizeCb, externalData, finalizeHint, byteLength, false};
+        info = std::make_unique<ExternalArrayBufferCallbackInfo>(
+            env->isolate, finalizeCb, externalData, finalizeHint, byteLength, false);
         deleter = [](void* data, size_t length, void* deleterDataArg) {
             auto* cbInfo = static_cast<ExternalArrayBufferCallbackInfo*>(deleterDataArg);
             if (cbInfo->finalizeCb) {
-                cbInfo->env->CallIntoModule(
-                    [&](JSVM_Env env) {
-                        cbInfo->finalizeCb(env, cbInfo->externalData, cbInfo->finalizeHint, cbInfo->copied);
-                    },
-                    JSVM_Env__::HandleThrow, false);
-            }
-            if (cbInfo->byteLength > 0) {
-                cbInfo->env->isolate->AdjustAmountOfExternalAllocatedMemory(
-                    -static_cast<int64_t>(cbInfo->byteLength));
+                // Pass nullptr for env — the env may have been destroyed before the
+                // BackingStore deleter runs. The finalizeCb should only free external
+                // memory and must not call any JSVM APIs.
+                cbInfo->finalizeCb(nullptr, cbInfo->externalData, cbInfo->finalizeHint, cbInfo->copied);
             }
             delete cbInfo;
         };
-        deleterData = info;
+        deleterData = info.get();
     } else {
         deleter = v8::BackingStore::EmptyDeleter;
     }
@@ -4197,12 +4211,9 @@ JSVM_Status OH_JSVM_CreateArrayBufferFromExternalMemory(JSVM_Env env,
     v8::Local<v8::ArrayBuffer> arrayBuffer =
         v8::ArrayBuffer::New(env->isolate, std::move(backingStore));
 
-    // Notify V8 about external memory for GC pressure.
-    // Only when finalizeCb is provided — the deleter will decrement on GC.
-    // Without finalizeCb the user manages memory lifetime, so no tracking needed.
-    if (finalizeCb != nullptr && byteLength > 0) {
-        env->isolate->AdjustAmountOfExternalAllocatedMemory(static_cast<int64_t>(byteLength));
-    }
+    // Ownership successfully transferred to BackingStore deleter
+    (void)info.release();
+
     if (copied != nullptr) {
         *copied = false;
     }
@@ -4213,26 +4224,27 @@ JSVM_Status OH_JSVM_CreateArrayBufferFromExternalMemory(JSVM_Env env,
     // but in sandbox mode we need an explicit weak reference since the data was copied.
 #ifdef V8_ENABLE_SANDBOX
     if (finalizeCb != nullptr) {
-        auto* ref = new ExternalArrayBufferCallbackInfo{
-            env, finalizeCb, externalData, finalizeHint, byteLength, true};
-        auto* persistent = new v8::Global<v8::Value>(env->isolate, arrayBuffer);
-        persistent->SetWeak(ref, [persistent](const v8::WeakCallbackInfo<ExternalArrayBufferCallbackInfo>& data) {
+        auto ref = std::make_unique<ExternalArrayBufferCallbackInfo>(
+            env->isolate, finalizeCb, externalData, finalizeHint, byteLength, true);
+        auto persistent = std::make_unique<v8::Global<v8::Value>>(env->isolate, arrayBuffer);
+        auto* persistentPtr = persistent.get();
+        persistentPtr->SetWeak(ref.get(), [persistentPtr](const v8::WeakCallbackInfo<ExternalArrayBufferCallbackInfo>& data) {
             auto* cbInfo = data.GetParameter();
             if (cbInfo->finalizeCb) {
-                cbInfo->env->CallIntoModule(
-                    [&](JSVM_Env env) {
-                        cbInfo->finalizeCb(env, cbInfo->externalData, cbInfo->finalizeHint, cbInfo->copied);
-                    },
-                    JSVM_Env__::HandleThrow, false);
+                // Pass nullptr for env — see comment in non-sandbox deleter above.
+                cbInfo->finalizeCb(nullptr, cbInfo->externalData, cbInfo->finalizeHint, cbInfo->copied);
             }
             if (cbInfo->byteLength > 0) {
-                cbInfo->env->isolate->AdjustAmountOfExternalAllocatedMemory(
+                cbInfo->isolate->AdjustAmountOfExternalAllocatedMemory(
                     -static_cast<int64_t>(cbInfo->byteLength));
             }
             delete cbInfo;
-            persistent->Reset();
-            delete persistent;
+            persistentPtr->Reset();
+            delete persistentPtr;
         }, v8::WeakCallbackType::kParameter);
+        // Ownership successfully transferred to weak callback
+        (void)ref.release();
+        (void)persistent.release();
     }
 #endif
 
