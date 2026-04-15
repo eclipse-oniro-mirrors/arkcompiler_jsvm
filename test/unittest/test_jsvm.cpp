@@ -1942,6 +1942,15 @@ HWTEST_F(JSVMTest, ExternalArrayBuffer_ZeroLength, TestSize.Level1)
     size_t len = 0;
     JSVMTEST_CALL(OH_JSVM_GetArraybufferInfo(env, ab, nullptr, &len));
     ASSERT_EQ(len, 0u);
+
+    // Zero-length buffer with finalizeCb must be rejected
+    JSVM_Value ab2 = nullptr;
+    bool wasCopied2 = false;
+    ASSERT_EQ(OH_JSVM_CreateArrayBufferFromExternalMemory(
+        env, nullptr, 0,
+        [](JSVM_Env, void*, void*, bool) {},
+        nullptr, &wasCopied2, &ab2), JSVM_INVALID_ARG)
+        << "finalizeCb with byteLength=0 must be rejected";
 }
 
 HWTEST_F(JSVMTest, ExternalArrayBuffer_TypedArrayView, TestSize.Level1)
@@ -2170,6 +2179,60 @@ HWTEST_F(JSVMTest, ExternalArrayBuffer_FinalizeCopiedConsistency, TestSize.Level
         << "FinalizeArrayBuffer's copied param must match API's copied output. "
         << "API returned copied=" << apiCopiedValue
         << ", finalizeCb received copied=" << finalizeCopiedValue;
+}
+
+// ArrayBuffer's BackingStore deleter fires during Heap::TearDown after env is already destroyed.
+// This test need to manually manage the VM/env lifecycle to trigger the crash path.
+HWTEST_F(JSVMTestWithoutHandleScope, ExternalArrayBuffer_DestroyVMWithPendingFinalize, TestSize.Level1)
+{
+    static std::atomic<bool> finalizeCalled { false };
+    finalizeCalled = false;
+
+    JSVM_VM testVm = nullptr;
+    JSVM_VMScope testVmScope = nullptr;
+    JSVM_Env testEnv = nullptr;
+    JSVM_EnvScope testEnvScope = nullptr;
+
+    OH_JSVM_CreateVM(nullptr, &testVm);
+    OH_JSVM_OpenVMScope(testVm, &testVmScope);
+    OH_JSVM_CreateEnv(testVm, 0, nullptr, &testEnv);
+    OH_JSVM_OpenEnvScope(testEnv, &testEnvScope);
+
+    {
+        JSVM_HandleScope scope = nullptr;
+        JSVMTEST_CALL(OH_JSVM_OpenHandleScope(testEnv, &scope));
+
+        constexpr size_t size = 1024;
+        auto* extData = static_cast<uint8_t*>(malloc(size));
+        ASSERT_NE(extData, nullptr);
+        for (size_t i = 0; i < size; i++) {
+            extData[i] = 0xAB;
+        }
+
+        JSVM_Value ab = nullptr;
+        JSVMTEST_CALL(OH_JSVM_CreateArrayBufferFromExternalMemory(
+            testEnv, extData, 1024,
+            [](JSVM_Env, void* data, void*, bool copied) {
+                finalizeCalled = true;
+                if (!copied) {
+                    free(data);
+                }
+            },
+            nullptr, nullptr, &ab));
+
+        JSVMTEST_CALL(OH_JSVM_CloseHandleScope(testEnv, scope));
+    }
+
+    // Do NOT trigger GC — the ArrayBuffer's BackingStore survives until Heap::TearDown.
+    // Destroy env first, then destroy VM. Without the fix, the deleter would
+    // access the freed env->isolate and crash with SIGSEGV.
+    OH_JSVM_CloseEnvScope(testEnv, testEnvScope);
+    OH_JSVM_DestroyEnv(testEnv);
+    OH_JSVM_CloseVMScope(testVm, testVmScope);
+    OH_JSVM_DestroyVM(testVm);  // Should NOT crash
+
+    // finalizeCb should have been called during VM teardown
+    ASSERT_TRUE(finalizeCalled.load()) << "Finalize callback must be called during VM teardown";
 }
 
 HWTEST_F(JSVMTest, JSVMUseLargeMemory, TestSize.Level1)
