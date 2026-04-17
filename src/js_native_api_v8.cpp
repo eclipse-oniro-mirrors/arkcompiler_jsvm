@@ -374,6 +374,56 @@ inline v8::Maybe<bool> ConcludeDeferred(JSVM_Env env, JSVM_Deferred deferred, JS
     return success;
 }
 
+class ExternalWrapper {
+private:
+    explicit ExternalWrapper(void *data) : m_data(data), m_wrapper(std::nullopt)
+    {}
+
+public:
+    static v8::Local<v8::External> New(JSVM_Env env, void *data)
+    {
+        ExternalWrapper *wrapper = new ExternalWrapper(data);
+        v8::Local<v8::External> external = v8::External::New(env->isolate, wrapper);
+
+        v8impl::RuntimeReference::New(env, external, Deleter, wrapper, nullptr);
+        return external;
+    }
+
+    static void Deleter(JSVM_Env env, void *finalizeData, void *finalizeHint)
+    {
+        delete finalizeData;
+    }
+
+    static ExternalWrapper *From(v8::Local<v8::External> external)
+    {
+        return static_cast<ExternalWrapper *>(external->Value());
+    }
+
+    void *Data()
+    {
+        return m_data;
+    }
+
+    bool HasWrapper()
+    {
+        return m_wrapper != std::nullopt;
+    }
+
+    void SetWrapper(RuntimeReference *wrapper)
+    {
+        m_wrapper = wrapper;
+    }
+
+    RuntimeReference *GetWrapper()
+    {
+        return *m_wrapper;
+    }
+
+private:
+    void *m_data;
+    std::optional<RuntimeReference *> m_wrapper;
+};
+
 enum UnwrapAction { KEEP_WRAP, REMOVE_WRAP };
 
 JSVM_Status Unwrap(JSVM_Env env, JSVM_Value jsObject, void** result, UnwrapAction action)
@@ -388,18 +438,29 @@ JSVM_Status Unwrap(JSVM_Env env, JSVM_Value jsObject, void** result, UnwrapActio
 
     v8::Local<v8::Value> value = v8impl::V8LocalValueFromJsValue(jsObject);
     RETURN_STATUS_IF_FALSE(env, value->IsObject(), JSVM_INVALID_ARG);
-    v8::Local<v8::Object> obj = value.As<v8::Object>();
 
-    auto val = obj->GetPrivate(context, JSVM_PRIVATE_KEY(env->isolate, wrapper)).ToLocalChecked();
-    RETURN_STATUS_IF_FALSE(env, val->IsExternal(), JSVM_INVALID_ARG);
-    RuntimeReference* reference = static_cast<v8impl::RuntimeReference*>(val.As<v8::External>()->Value());
+    RuntimeReference* reference = nullptr;
+    if (value->IsExternal()) {
+        reference = v8impl::ExternalWrapper::From(value.As<v8::External>())->GetWrapper();
+    } else {
+        v8::Local<v8::Object> obj = value.As<v8::Object>();
+
+        auto val = obj->GetPrivate(context, JSVM_PRIVATE_KEY(env->isolate, wrapper)).ToLocalChecked();
+        RETURN_STATUS_IF_FALSE(env, val->IsExternal(), JSVM_INVALID_ARG);
+        reference = static_cast<v8impl::RuntimeReference*>(val.As<v8::External>()->Value());
+    }
 
     if (result) {
         *result = reference->GetData();
     }
 
     if (action == REMOVE_WRAP) {
-        CHECK(obj->DeletePrivate(context, JSVM_PRIVATE_KEY(env->isolate, wrapper)).FromJust());
+        if (value->IsExternal()) {
+            v8impl::ExternalWrapper::From(value.As<v8::External>())->SetWrapper(nullptr);
+        } else {
+            v8::Local<v8::Object> obj = value.As<v8::Object>();
+            CHECK(obj->DeletePrivate(context, JSVM_PRIVATE_KEY(env->isolate, wrapper)).FromJust());
+        }
         v8impl::RuntimeReference::DeleteReference(reference);
     }
 
@@ -1016,12 +1077,8 @@ void PropertyCallbackWrapper<T>::SetReturnValue(JSVM_Value value)
     cbinfo.GetReturnValue().Set(val);
 }
 
-JSVM_Status Wrap(JSVM_Env env,
-                 JSVM_Value jsObject,
-                 void* nativeObject,
-                 JSVM_Finalize finalizeCb,
-                 void* finalizeHint,
-                 JSVM_Ref* result)
+JSVM_Status Wrap(JSVM_Env env, JSVM_Value jsObject, void *nativeObject, JSVM_Finalize finalizeCb, void *finalizeHint,
+    JSVM_Ref *result)
 {
     JSVM_PREAMBLE(env);
     CHECK_ARG(env, jsObject);
@@ -1032,18 +1089,27 @@ JSVM_Status Wrap(JSVM_Env env,
     RETURN_STATUS_IF_FALSE(env, value->IsObject(), JSVM_INVALID_ARG);
     v8::Local<v8::Object> obj = value.As<v8::Object>();
 
-    // If we've already wrapped this object, we error out.
-    RETURN_STATUS_IF_FALSE(env, !obj->HasPrivate(context, JSVM_PRIVATE_KEY(env->isolate, wrapper)).FromJust(),
-                           JSVM_INVALID_ARG);
+    if (obj->IsExternal()) {
+        RETURN_STATUS_IF_FALSE(
+            env, !v8impl::ExternalWrapper::From(obj.As<v8::External>())->HasWrapper(), JSVM_INVALID_ARG);
+    } else {
+        // If we've already wrapped this object, we error out.
+        RETURN_STATUS_IF_FALSE(
+            env, !obj->HasPrivate(context, JSVM_PRIVATE_KEY(env->isolate, wrapper)).FromJust(), JSVM_INVALID_ARG);
+    }
 
     auto reference = v8impl::RuntimeReference::New(env, obj, finalizeCb, nativeObject, finalizeHint);
     if (result != nullptr) {
-        auto* userRef = v8impl::UserReference::New(env, obj, 0);
+        auto *userRef = v8impl::UserReference::New(env, obj, 0);
         *result = reinterpret_cast<JSVM_Ref>(userRef);
     }
 
-    CHECK(obj->SetPrivate(context, JSVM_PRIVATE_KEY(env->isolate, wrapper), v8::External::New(env->isolate, reference))
-              .FromJust());
+    if (obj->IsExternal()) {
+        v8impl::ExternalWrapper::From(obj.As<v8::External>())->SetWrapper(reference);
+    } else {
+        auto external =  v8::External::New(env->isolate, reference);
+        CHECK(obj->SetPrivate(context, JSVM_PRIVATE_KEY(env->isolate, wrapper), external).FromJust());
+    }
 
     return GET_RETURN_STATUS(env);
 }
@@ -3604,7 +3670,7 @@ JSVM_Status OH_JSVM_CreateExternal(JSVM_Env env,
 
     v8::Isolate* isolate = env->isolate;
 
-    v8::Local<v8::Value> externalValue = v8::External::New(isolate, data);
+    v8::Local<v8::Value> externalValue = v8impl::ExternalWrapper::New(env, data);
 
     if (finalizeCb) {
         v8impl::RuntimeReference::New(env, externalValue, finalizeCb, data, finalizeHint);
@@ -3689,7 +3755,7 @@ JSVM_Status OH_JSVM_GetValueExternal(JSVM_Env env, JSVM_Value value, void** resu
     RETURN_STATUS_IF_FALSE(env, val->IsExternal(), JSVM_INVALID_ARG);
 
     v8::Local<v8::External> externalValue = val.As<v8::External>();
-    *result = externalValue->Value();
+    *result = v8impl::ExternalWrapper::From(externalValue)->Data();
 
     return ClearLastError(env);
 }

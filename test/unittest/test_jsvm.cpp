@@ -1856,6 +1856,47 @@ HWTEST_F(JSVMTest, JSVMUseLargeMemory, TestSize.Level1)
     JSVMTEST_CALL(OH_JSVM_CloseHandleScope(env, handle));
 }
 
+HWTEST_F(JSVMTest, JSVMWrapV8External, TestSize.Level1)
+{
+    int externalObject = 0;
+    int wrapperObject = 1;
+    int wrapperObject1 = 2;
+    JSVM_Value external;
+    JSVMTEST_CALL(OH_JSVM_CreateExternal(env, &externalObject, nullptr, nullptr, &external));
+    JSVMTEST_CALL(OH_JSVM_Wrap(env, external, &wrapperObject, nullptr, nullptr, nullptr));
+    ASSERT_EQ(OH_JSVM_Wrap(env, external, &wrapperObject1, nullptr, nullptr, nullptr), JSVM_INVALID_ARG);
+
+    int* externalAddress = nullptr;
+    int* wrapperAddress = nullptr;
+    JSVMTEST_CALL(OH_JSVM_GetValueExternal(env, external, reinterpret_cast<void **>(&externalAddress)));
+    JSVMTEST_CALL(OH_JSVM_Unwrap(env, external, reinterpret_cast<void **>(&wrapperAddress)));
+    
+    ASSERT_EQ(externalAddress, &externalObject);
+    ASSERT_EQ(wrapperAddress, &wrapperObject);
+    ASSERT_EQ(externalObject, 0);
+    ASSERT_EQ(wrapperObject, 1);
+}
+
+HWTEST_F(JSVMTest, JSVMWrapV8ExternalWithNullptr, TestSize.Level1)
+{
+    void *nullExternal = nullptr;
+    void *nullWrapper = nullptr;
+    int tmp = 1;
+
+    JSVM_Value external;
+    JSVMTEST_CALL(OH_JSVM_CreateExternal(env, nullExternal, nullptr, nullptr, &external));
+    JSVMTEST_CALL(OH_JSVM_Wrap(env, external, nullWrapper, nullptr, nullptr, nullptr));
+    ASSERT_EQ(OH_JSVM_Wrap(env, external, &tmp, nullptr, nullptr, nullptr), JSVM_INVALID_ARG);
+
+    void* externalAddress = &tmp;
+    void* wrapperAddress = &tmp;
+    JSVMTEST_CALL(OH_JSVM_GetValueExternal(env, external, &externalAddress));
+    JSVMTEST_CALL(OH_JSVM_Unwrap(env, external, &wrapperAddress));
+
+    ASSERT_EQ(externalAddress, nullExternal);
+    ASSERT_EQ(wrapperAddress, nullWrapper);
+}
+
 HWTEST_F(JSVMTest, JSVMBackgroundDeserialize, TestSize.Level1)
 {
     std::vector<uint8_t> buffer = ReadBinaryFile(SRC_PROF_CACHE_PATH);
