@@ -152,6 +152,7 @@ do_env() {
         ARCH="arm"
     elif [[ "${TARGET_CPU}" = "arm64" ]]; then
         cflags="  --target=aarch64-linux-ohos"
+        argurment+=" -I${PREFIX}/../include/c++/v1"
         cflags+=" --sysroot=${SYSROOT}"
         if [[ "${DEPENDENCY_TAG}" = "default" ]]; then
           cflags+=" -isystem ${SYSROOT}/usr/include/aarch64-linux-ohos"
