@@ -38,7 +38,6 @@ void SetSecurityMode();
 
 void WriteJSVMInitToHisysevent();
 
-void WriteJitBlockedToHisysevent();
 void WriteOOMErrorToHisysevent(const char* location, const char* detail, bool isHeapOOM, const char* heapStat);
 
 void WriteAPIUseToHisysevent(const char *apiName);

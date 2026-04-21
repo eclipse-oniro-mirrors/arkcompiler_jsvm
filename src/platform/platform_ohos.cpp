@@ -229,11 +229,11 @@ void SetV8CommandLineFlags(size_t argc, const char* const *argv, bool removeFlag
 
 void SetSecurityMode()
 {
-    constexpr size_t secArgCnt = 2;
+    constexpr size_t secArgCnt = 3;
     if (ReadAdvancedSecurityMode() || !HasJitfortACL()) {
         isJitMode = false;
         constexpr bool removeFlag = false;
-        const char* secArgv[secArgCnt] = { "jsvm", "--jitless" };
+        const char* secArgv[secArgCnt] = { "jsvm", "--jitless", "--wasm-jitless" };
         SetV8CommandLineFlags(secArgCnt, secArgv, removeFlag);
     }
 }
@@ -321,30 +321,6 @@ void WriteJSVMInitToHisysevent()
         .arraySize = 0,
     };
     HiSysEventParam params[] = { param };
-    WriteHisysevent(params, sizeof(params) / sizeof(params[0]));
-#endif
-}
-
-void WriteJitBlockedToHisysevent()
-{
-#ifdef ENABLE_HISYSEVENT
-    static bool blockHasWritten = false;
-    if (blockHasWritten) { return; }
-    blockHasWritten = true;
-    std::unique_ptr<char[]> name = ProcessBundleNameParam();
-    HiSysEventParam param = {
-        .name = "BUNDLE_NAME",
-        .t = HISYSEVENT_STRING,
-        .v = { .s = name.get() },
-        .arraySize = 0,
-    };
-    HiSysEventParam runJitParam = {
-        .name = "IF_JIT_BLOCKED",
-        .t = HISYSEVENT_BOOL,
-        .v = { .b = true },
-        .arraySize = 0,
-    };
-    HiSysEventParam params[] = { param, runJitParam };
     WriteHisysevent(params, sizeof(params) / sizeof(params[0]));
 #endif
 }
