@@ -40,6 +40,7 @@
 #include "libplatform/v8-tracing.h"
 #include "platform/platform.h"
 #include "sourcemap.h"
+#include "dfx/jsvm_hidump.h"
 
 #ifdef V8_USE_PERFETTO
 #error Unsupported Perfetto.
@@ -1208,6 +1209,7 @@ JSVM_Status OH_JSVM_CreateVM(const JSVM_CreateVMOptions* options, JSVM_VM* resul
         isolate = v8::Isolate::New(createParams);
     }
     v8impl::CreateIsolateData(isolate, snapshotBlob);
+    jsvm::IsolateRegistry::GetInstance().RegisterIsolate(isolate);
     *result = reinterpret_cast<JSVM_VM>(isolate);
     // Create nullptr placeholder
     isolate->SetData(v8impl::K_ISOLATE_HANDLER_POOL_SLOT, nullptr);
@@ -1222,6 +1224,7 @@ JSVM_Status OH_JSVM_DestroyVM(JSVM_VM vm)
         return JSVM_INVALID_ARG;
     }
     auto isolate = reinterpret_cast<v8::Isolate*>(vm);
+    jsvm::IsolateRegistry::GetInstance().UnregisterIsolate(isolate);
     auto creator = v8impl::GetIsolateSnapshotCreator(isolate);
     auto data = v8impl::GetIsolateData(isolate);
 
