@@ -207,3 +207,39 @@ action("build_libjsvm") {
 group("jsvm_packages") {
   deps = [ ":libjsvm" ]
 }
+
+prebuilts_base = "//prebuilts/js_rawheap_translator"
+# default for linux_x64 and ohos_arm64
+platform_base = current_os
+
+if (current_os == "mingw") {
+  platform_base = "windows"
+}
+if (current_os == "mac") {
+  platform_base = "darwin"
+}
+if (current_os == "linux" && current_cpu == "arm64") {
+  platform_base = "linux_arm64"
+}
+
+ohos_prebuilt_executable("t1") {
+  source = "${prebuilts_base}/${platform_base}/t1"
+  subsystem_name = "arkcompiler"
+  part_name = "jsvm"
+}
+
+ohos_prebuilt_executable("t2") {
+  source = "${prebuilts_base}/${platform_base}/t2"
+  subsystem_name = "arkcompiler"
+  part_name = "jsvm"
+}
+
+ohos_prebuilt_executable("js_rawheap_translator") {
+  suffix = ""
+  if (current_os == "mingw") {
+    suffix = ".exe"
+  }
+  source = "${prebuilts_base}/${platform_base}/js_rawheap_translator${suffix}"
+  subsystem_name = "arkcompiler"
+  part_name = "jsvm"
+}
