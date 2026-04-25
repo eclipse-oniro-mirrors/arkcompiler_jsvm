@@ -1209,7 +1209,6 @@ JSVM_Status OH_JSVM_CreateVM(const JSVM_CreateVMOptions* options, JSVM_VM* resul
         isolate = v8::Isolate::New(createParams);
     }
     v8impl::CreateIsolateData(isolate, snapshotBlob);
-    jsvm::IsolateRegistry::GetInstance().RegisterIsolate(isolate);
     *result = reinterpret_cast<JSVM_VM>(isolate);
     // Create nullptr placeholder
     isolate->SetData(v8impl::K_ISOLATE_HANDLER_POOL_SLOT, nullptr);
@@ -1224,7 +1223,6 @@ JSVM_Status OH_JSVM_DestroyVM(JSVM_VM vm)
         return JSVM_INVALID_ARG;
     }
     auto isolate = reinterpret_cast<v8::Isolate*>(vm);
-    jsvm::IsolateRegistry::GetInstance().UnregisterIsolate(isolate);
     auto creator = v8impl::GetIsolateSnapshotCreator(isolate);
     auto data = v8impl::GetIsolateData(isolate);
 
@@ -1248,6 +1246,7 @@ JSVM_Status OH_JSVM_DestroyVM(JSVM_VM vm)
 JSVM_Status OH_JSVM_OpenVMScope(JSVM_VM vm, JSVM_VMScope* result)
 {
     auto isolate = reinterpret_cast<v8::Isolate*>(vm);
+    jsvm::IsolateRegistry::GetInstance().RegisterIsolate(isolate);
     auto scope = new v8::Isolate::Scope(isolate);
     *result = reinterpret_cast<JSVM_VMScope>(scope);
     return JSVM_OK;
@@ -1255,7 +1254,9 @@ JSVM_Status OH_JSVM_OpenVMScope(JSVM_VM vm, JSVM_VMScope* result)
 
 JSVM_Status OH_JSVM_CloseVMScope(JSVM_VM vm, JSVM_VMScope scope)
 {
+    auto isolate = reinterpret_cast<v8::Isolate*>(vm);
     auto v8scope = reinterpret_cast<v8::Isolate::Scope*>(scope);
+    jsvm::IsolateRegistry::GetInstance().UnregisterIsolate(isolate);
     delete v8scope;
     return JSVM_OK;
 }
