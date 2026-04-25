@@ -2515,3 +2515,238 @@ HWTEST_F(JSVMNoScopeTest, CrossThreadHandoffWithAPICalls, TestSize.Level1)
     t2.join();
     ASSERT_TRUE(t2Success.load()) << "Thread2 should perform API calls successfully after handoff";
 }
+
+// ============================================================================
+// Heap Threshold Callback Tests
+// ============================================================================
+
+static bool g_heapThresholdCallbackCalled = false;
+static uint64_t g_callbackThreshold = 0;
+static void* g_callbackData = nullptr;
+
+void OnHeapThresholdReached(JSVM_VM vm, uint64_t threshold, void* data)
+{
+    g_heapThresholdCallbackCalled = true;
+    g_callbackThreshold = threshold;
+    g_callbackData = data;
+}
+
+HWTEST_F(JSVMTest, JSVMHeapThresholdCallbackBasicTest, TestSize.Level1)
+{
+    g_heapThresholdCallbackCalled = false;
+    g_callbackThreshold = 0;
+    g_callbackData = nullptr;
+
+    int testData = 0x12345678;
+
+    ASSERT_EQ(OH_JSVM_AddHeapThresholdCallback(vm, 1024 * 1024, OnHeapThresholdReached, &testData), JSVM_OK);
+
+    ASSERT_EQ(OH_JSVM_AddHeapThresholdCallback(vm, 2048 * 1024, OnHeapThresholdReached, &testData), JSVM_INVALID_ARG);
+
+    ASSERT_EQ(OH_JSVM_RemoveHeapThresholdCallback(vm, 1024 * 1024, OnHeapThresholdReached, &testData), JSVM_OK);
+
+    ASSERT_EQ(OH_JSVM_RemoveHeapThresholdCallback(vm, 1024 * 1024, OnHeapThresholdReached, &testData),
+        JSVM_INVALID_ARG);
+}
+
+HWTEST_F(JSVMTest, JSVMHeapThresholdCallbackNegativeTest, TestSize.Level1)
+{
+    int testData = 0x12345678;
+
+    ASSERT_EQ(OH_JSVM_AddHeapThresholdCallback(nullptr, 1024 * 1024, OnHeapThresholdReached, &testData),
+        JSVM_INVALID_ARG);
+    ASSERT_EQ(OH_JSVM_AddHeapThresholdCallback(vm, 1024 * 1024, nullptr, &testData), JSVM_INVALID_ARG);
+    ASSERT_EQ(OH_JSVM_AddHeapThresholdCallback(vm, 0, OnHeapThresholdReached, &testData), JSVM_INVALID_ARG);
+    ASSERT_EQ(OH_JSVM_AddHeapThresholdCallback(vm, UINT64_MAX, OnHeapThresholdReached, &testData),
+        JSVM_INVALID_ARG);
+
+    ASSERT_EQ(OH_JSVM_RemoveHeapThresholdCallback(nullptr, 1024 * 1024, OnHeapThresholdReached, &testData),
+        JSVM_INVALID_ARG);
+    ASSERT_EQ(OH_JSVM_RemoveHeapThresholdCallback(vm, 1024 * 1024, nullptr, &testData), JSVM_INVALID_ARG);
+    ASSERT_EQ(OH_JSVM_RemoveHeapThresholdCallback(vm, 999999, OnHeapThresholdReached, &testData), JSVM_INVALID_ARG);
+    ASSERT_EQ(OH_JSVM_RemoveHeapThresholdCallback(vm, 1024 * 1024, OnHeapThresholdReached, &testData),
+        JSVM_INVALID_ARG);
+}
+
+HWTEST_F(JSVMTest, JSVMHeapThresholdCallbackTriggerTest, TestSize.Level1)
+{
+    g_heapThresholdCallbackCalled = false;
+    g_callbackThreshold = 0;
+    g_callbackData = nullptr;
+
+    int testData = 0xDEADBEEF;
+    uint64_t smallThreshold = 1024;
+
+    ASSERT_EQ(OH_JSVM_AddHeapThresholdCallback(vm, smallThreshold, OnHeapThresholdReached, &testData), JSVM_OK);
+
+    jsvm::TryTriggerGC();
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    ASSERT_TRUE(g_heapThresholdCallbackCalled);
+    EXPECT_EQ(g_callbackThreshold, smallThreshold);
+    EXPECT_EQ(g_callbackData, &testData);
+
+    ASSERT_EQ(OH_JSVM_RemoveHeapThresholdCallback(vm, smallThreshold, OnHeapThresholdReached, &testData), JSVM_OK);
+}
+
+static bool g_selfRemoveCallbackRemoved = false;
+static bool g_selfRemoveReAddSucceeded = false;
+static int g_selfRemoveTestData1 = 0;
+static int g_selfRemoveTestData2 = 0;
+static uint64_t g_selfRemoveThreshold = 0;
+
+static void SelfRemoveAndReAddCallback(JSVM_VM vm, uint64_t threshold, void* data)
+{
+    g_heapThresholdCallbackCalled = true;
+    g_callbackThreshold = threshold;
+    g_callbackData = data;
+
+    if (!g_selfRemoveCallbackRemoved) {
+        g_selfRemoveCallbackRemoved = true;
+        int* dataPtr = reinterpret_cast<int*>(data);
+        JSVM_Status removeStatus =
+            OH_JSVM_RemoveHeapThresholdCallback(vm, threshold, SelfRemoveAndReAddCallback, dataPtr);
+        if (removeStatus == JSVM_OK) {
+            JSVM_Status addStatus =
+                OH_JSVM_AddHeapThresholdCallback(vm, threshold, OnHeapThresholdReached, &g_selfRemoveTestData2);
+            g_selfRemoveReAddSucceeded = (addStatus == JSVM_OK);
+        }
+    }
+}
+
+HWTEST_F(JSVMTest, JSVMHeapThresholdCallbackRemoveAndReAddInCallback, TestSize.Level1)
+{
+    g_heapThresholdCallbackCalled = false;
+    g_selfRemoveCallbackRemoved = false;
+    g_selfRemoveReAddSucceeded = false;
+    g_selfRemoveTestData1 = 0x11111111;
+    g_selfRemoveTestData2 = 0x22222222;
+    g_selfRemoveThreshold = 1024;
+
+    ASSERT_EQ(OH_JSVM_AddHeapThresholdCallback(vm, g_selfRemoveThreshold, SelfRemoveAndReAddCallback,
+        &g_selfRemoveTestData1), JSVM_OK);
+
+    jsvm::TryTriggerGC();
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    ASSERT_TRUE(g_heapThresholdCallbackCalled);
+    EXPECT_TRUE(g_selfRemoveCallbackRemoved);
+    EXPECT_TRUE(g_selfRemoveReAddSucceeded);
+
+    ASSERT_EQ(OH_JSVM_RemoveHeapThresholdCallback(vm, g_selfRemoveThreshold, OnHeapThresholdReached,
+        &g_selfRemoveTestData2), JSVM_OK);
+}
+
+// ============================================================================
+// Raw Heap Snapshot Tests
+// ============================================================================
+
+static bool g_snapshotStreamCallbackCalled = false;
+
+bool TestOutputStream(const char* data, int size, void* streamData)
+{
+    g_snapshotStreamCallbackCalled = true;
+    WriteBinaryFile("test.rawheap", reinterpret_cast<const uint8_t*>(data), static_cast<size_t>(size));
+    return true;
+}
+
+HWTEST_F(JSVMTest, JSVMTakeRawHeapSnapshotBasicTest, TestSize.Level1)
+{
+    g_snapshotStreamCallbackCalled = false;
+    JSVM_Status status = OH_JSVM_TakeRawHeapSnapshot(vm, TestOutputStream, nullptr);
+    ASSERT_EQ(status, JSVM_OK);
+    EXPECT_TRUE(g_snapshotStreamCallbackCalled);
+}
+
+static bool SnapshotStreamCallback(const char* data, int size, void* streamData)
+{
+    if (data != nullptr && size > 0) {
+        g_snapshotStreamCallbackCalled = true;
+    }
+    return true;
+}
+
+HWTEST_F(JSVMTest, JSVMTakeRawHeapSnapshotNegativeTest, TestSize.Level1)
+{
+    ASSERT_EQ(OH_JSVM_TakeRawHeapSnapshot(nullptr, SnapshotStreamCallback, nullptr), JSVM_INVALID_ARG);
+    ASSERT_EQ(OH_JSVM_TakeRawHeapSnapshot(vm, nullptr, nullptr), JSVM_INVALID_ARG);
+}
+
+static bool g_snapshotTakenPtr = false;
+
+static void SnapshotCallback(JSVM_VM vm, uint64_t threshold, void* data)
+{
+    g_heapThresholdCallbackCalled = true;
+    if (!g_snapshotTakenPtr) {
+        g_snapshotTakenPtr = true;
+        pid_t pid = fork();
+        if (pid < 0) {
+            perror("fork failed");
+        } else if (pid == 0) {
+            ASSERT_EQ(OH_JSVM_TakeRawHeapSnapshot(vm, SnapshotStreamCallback, nullptr), JSVM_OK);
+            _exit(0);
+        }
+    }
+}
+
+HWTEST_F(JSVMTest, JSVMHeapThresholdCallbackWithTakeRawHeapSnapshot, TestSize.Level1)
+{
+    g_heapThresholdCallbackCalled = false;
+    g_snapshotTakenPtr = false;
+
+    ASSERT_EQ(OH_JSVM_AddHeapThresholdCallback(vm, 1024, SnapshotCallback, nullptr), JSVM_OK);
+
+    jsvm::TryTriggerGC();
+
+    int status;
+    pid_t childPid;
+    while ((childPid = waitpid(-1, &status, WNOHANG)) == 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    EXPECT_TRUE(g_heapThresholdCallbackCalled);
+    ASSERT_EQ(OH_JSVM_RemoveHeapThresholdCallback(vm, 1024, SnapshotCallback, nullptr), JSVM_OK);
+}
+
+static bool g_syncSnapshotFinished = false;
+
+static bool SyncSnapshotStreamCallback(const char* data, int len, void* stream)
+{
+    if (len > 0) {
+        g_syncSnapshotFinished = true;
+    }
+    return true;
+}
+
+static void SyncSnapshotThresholdCallback(JSVM_VM vm, uint64_t threshold, void* data)
+{
+    g_heapThresholdCallbackCalled = true;
+    ASSERT_EQ(OH_JSVM_TakeRawHeapSnapshot(vm, SyncSnapshotStreamCallback, nullptr), JSVM_OK);
+}
+
+HWTEST_F(JSVMTest, JSVMHeapThresholdCallbackWithSyncSnapshot, TestSize.Level1)
+{
+    g_heapThresholdCallbackCalled = false;
+    g_syncSnapshotFinished = false;
+
+    ASSERT_EQ(OH_JSVM_AddHeapThresholdCallback(vm, 1024, SyncSnapshotThresholdCallback, nullptr), JSVM_OK);
+
+    jsvm::TryTriggerGC();
+
+    EXPECT_TRUE(g_heapThresholdCallbackCalled);
+    EXPECT_TRUE(g_syncSnapshotFinished);
+    ASSERT_EQ(OH_JSVM_RemoveHeapThresholdCallback(vm, 1024, SyncSnapshotThresholdCallback, nullptr), JSVM_OK);
+}
+
+HWTEST_F(JSVMTest, JSVMHeapThresholdAddCallbackWithOutRemove, TestSize.Level1)
+{
+    g_heapThresholdCallbackCalled = false;
+    g_syncSnapshotFinished = false;
+
+    ASSERT_EQ(OH_JSVM_AddHeapThresholdCallback(vm, 1024, SyncSnapshotThresholdCallback, nullptr), JSVM_OK);
+
+    jsvm::TryTriggerGC();
+
+    EXPECT_TRUE(g_heapThresholdCallbackCalled);
+    EXPECT_TRUE(g_syncSnapshotFinished);
+}

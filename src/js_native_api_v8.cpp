@@ -90,12 +90,24 @@ struct GCHandlerWrapper {
 
 using GCHandlerWrappers = std::list<GCHandlerWrapper*>;
 
+struct HeapThresholdCallbackInfo {
+    HeapThresholdCallbackInfo(uint64_t threshold, JSVM_HandlerForHeapThreshold callback, void* data)
+        : threshold(threshold), callback(callback), data(data)
+    {}
+
+    uint64_t threshold;
+    JSVM_HandlerForHeapThreshold callback;
+    void* data;
+};
+
 struct IsolateHandlerPool {
     JSVM_HandlerForOOMError handlerForOOMError = nullptr;
     JSVM_HandlerForFatalError handlerForFatalError = nullptr;
     JSVM_HandlerForPromiseReject handlerForPromiseReject = nullptr;
     GCHandlerWrappers handlerWrappersBeforeGC;
     GCHandlerWrappers handlerWrappersAfterGC;
+    HeapThresholdCallbackInfo* heapThresholdCallback = nullptr;
+    bool isHeapThresholdCallbackRunning = false;
 
     ~IsolateHandlerPool()
     {
@@ -107,6 +119,9 @@ struct IsolateHandlerPool {
             delete handler;
         }
         handlerWrappersAfterGC.clear();
+        if (heapThresholdCallback != nullptr) {
+            delete heapThresholdCallback;
+        }
     }
 };
 
@@ -1216,6 +1231,8 @@ JSVM_Status OH_JSVM_CreateVM(const JSVM_CreateVMOptions* options, JSVM_VM* resul
     return JSVM_OK;
 }
 
+static void OnGCWithHeapThreshold(v8::Isolate* isolate, v8::GCType type, v8::GCCallbackFlags flags, void* data);
+
 JSVM_Status OH_JSVM_DestroyVM(JSVM_VM vm)
 {
     if (!vm) {
@@ -1226,6 +1243,9 @@ JSVM_Status OH_JSVM_DestroyVM(JSVM_VM vm)
     auto data = v8impl::GetIsolateData(isolate);
 
     auto* handlerPool = v8impl::GetIsolateHandlerPool(isolate);
+    if (handlerPool != nullptr && handlerPool->heapThresholdCallback != nullptr) {
+        isolate->RemoveGCPrologueCallback(OnGCWithHeapThreshold, nullptr);
+    }
     if (creator != nullptr) {
         delete creator;
     } else {
@@ -6450,4 +6470,100 @@ JSVM_Status OH_JSVM_PromiseRegisterHandler(JSVM_Env env,
     }
 
     return ClearLastError(env);
+}
+
+static void CheckHeapThresholdCallbacks(v8::Isolate* isolate)
+{
+    auto* pool = v8impl::GetIsolateHandlerPool(isolate);
+    if (pool == nullptr || pool->heapThresholdCallback == nullptr) {
+        return;
+    }
+    if (pool->isHeapThresholdCallbackRunning) {
+        return;
+    }
+    v8::HeapStatistics heapStats;
+    isolate->GetHeapStatistics(&heapStats);
+    size_t usedHeapSize = heapStats.used_heap_size();
+    if (usedHeapSize >= pool->heapThresholdCallback->threshold) {
+        pool->isHeapThresholdCallbackRunning = true;
+        pool->heapThresholdCallback->callback(
+            reinterpret_cast<JSVM_VM>(isolate), pool->heapThresholdCallback->threshold,
+            pool->heapThresholdCallback->data);
+        pool->isHeapThresholdCallbackRunning = false;
+    }
+}
+
+static void OnGCWithHeapThreshold(v8::Isolate* isolate, v8::GCType type, v8::GCCallbackFlags flags, void* data)
+{
+    CheckHeapThresholdCallbacks(isolate);
+}
+
+JSVM_EXTERN JSVM_Status OH_JSVM_TakeRawHeapSnapshot(JSVM_VM vm, JSVM_OutputStream stream, void* streamData)
+{
+    CHECK_ARG_WITHOUT_ENV(vm);
+    CHECK_ARG_WITHOUT_ENV(stream);
+    auto isolate = reinterpret_cast<v8::Isolate*>(vm);
+    auto profiler = isolate->GetHeapProfiler();
+    if (profiler == nullptr) {
+        return JSVM_INVALID_ARG;
+    }
+    v8impl::OutputStream os(stream, streamData);
+    profiler->DumpRawHeapSnapshot(&os);
+    return JSVM_OK;
+}
+
+JSVM_EXTERN JSVM_Status OH_JSVM_AddHeapThresholdCallback(JSVM_VM vm,
+                                                         uint64_t threshold,
+                                                         JSVM_HandlerForHeapThreshold callback,
+                                                         void* data)
+{
+    CHECK_ARG_WITHOUT_ENV(vm);
+    CHECK_ARG_WITHOUT_ENV(callback);
+    if (threshold == 0) {
+        return JSVM_INVALID_ARG;
+    }
+
+    auto* isolate = reinterpret_cast<v8::Isolate*>(vm);
+    v8::HeapStatistics heapStats;
+    isolate->GetHeapStatistics(&heapStats);
+    if (threshold > heapStats.heap_size_limit()) {
+        return JSVM_INVALID_ARG;
+    }
+
+    auto* pool = v8impl::GetOrCreateIsolateHandlerPool(isolate);
+    if (pool->heapThresholdCallback != nullptr) {
+        return JSVM_INVALID_ARG;
+    }
+
+    pool->heapThresholdCallback = new v8impl::HeapThresholdCallbackInfo(threshold, callback, data);
+    isolate->AddGCPrologueCallback(OnGCWithHeapThreshold, nullptr, v8::GCType::kGCTypeMarkSweepCompact);
+
+    return JSVM_OK;
+}
+
+JSVM_EXTERN JSVM_Status OH_JSVM_RemoveHeapThresholdCallback(JSVM_VM vm,
+                                                            uint64_t threshold,
+                                                            JSVM_HandlerForHeapThreshold callback,
+                                                            void* data)
+{
+    CHECK_ARG_WITHOUT_ENV(vm);
+    CHECK_ARG_WITHOUT_ENV(callback);
+
+    auto* isolate = reinterpret_cast<v8::Isolate*>(vm);
+    auto* pool = v8impl::GetIsolateHandlerPool(isolate);
+    if (pool == nullptr || pool->heapThresholdCallback == nullptr) {
+        return JSVM_INVALID_ARG;
+    }
+
+    if (pool->heapThresholdCallback->threshold != threshold ||
+        pool->heapThresholdCallback->callback != callback ||
+        pool->heapThresholdCallback->data != data) {
+        return JSVM_INVALID_ARG;
+    }
+
+    delete pool->heapThresholdCallback;
+    pool->heapThresholdCallback = nullptr;
+    isolate->RemoveGCPrologueCallback(OnGCWithHeapThreshold, nullptr);
+
+    return JSVM_OK;
 }
