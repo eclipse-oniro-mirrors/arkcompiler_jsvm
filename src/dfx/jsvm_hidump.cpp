@@ -17,7 +17,6 @@
 
 #include <unistd.h>
 #include <chrono>
-#include <condition_variable>
 #include <sys/syscall.h>
 #include <sys/wait.h>
 
@@ -115,31 +114,27 @@ private:
 // ─── DumpArgs ───────────────────────────────────────────────────────────────
 //
 // Passed as void* to RequestInterrupt. The heap-allocated DumpArgs outlives
-// the stack frame of jsvm_dump_heapsnapshot, and is shared between the main
-// thread (sets result after wait), the JS thread (sets done in callback),
-// and the forked child process (reads done to begin dump).
+// the stack frame of jsvm_dump_heapsnapshot. Shared between the main thread
+// (dispatches the request), the JS thread (sets done in callback), and the
+// forked child process (reads done to begin dump).
 //
 struct DumpArgs
 {
     v8::Isolate* isolate;
     uint32_t tid;
     DumpFormat format;
-    DumpStatus result;
     std::mutex mu;
-    std::condition_variable cv;
     bool done;
 
     DumpArgs(v8::Isolate* iso, uint32_t t, DumpFormat fmt)
-        : isolate(iso), tid(t), format(fmt),
-          result(DumpStatus::SUCCESS), done(false)
+        : isolate(iso), tid(t), format(fmt), done(false)
     {}
 };
 
 // ─── DoDump: performs the actual heap snapshot work ─────────────────────────
 //
-// Called in the forked child process. The child waits for done=true before
-// calling this, so TakeHeapSnapshot runs at a safepoint with no JS frame
-// on the stack.
+// Called in the forked child process. done=true was set before fork(), so
+// TakeHeapSnapshot runs at a safepoint with no JS frame on the stack.
 //
 static void DoDump(DumpArgs* args)
 {
@@ -155,7 +150,6 @@ static void DoDump(DumpArgs* args)
 
     int32_t fd = RequestFileDescriptorEx(&request);
     if (fd < 0) {
-        args->result = DumpStatus::ERR_FD_REQUEST;
         LOG(Error) << "jsvm_dump_heapsnapshot: RequestFileDescriptorEx failed, fd=" << fd;
         return;
     }
@@ -176,14 +170,13 @@ static void DoDump(DumpArgs* args)
         const v8::HeapSnapshot* snapshot =
             args->isolate->GetHeapProfiler()->TakeHeapSnapshot();
         if (snapshot == nullptr) {
-            args->result = DumpStatus::ERR_SERIALIZE;
             LOG(Error) << "jsvm_dump_heapsnapshot: TakeHeapSnapshot returned nullptr";
-        } else {
-            snapshot->Serialize(&stream);
-            const_cast<v8::HeapSnapshot*>(snapshot)->Delete();
-            LOG(Info) << "jsvm_dump_heapsnapshot: tid=" << args->tid
-                      << " HEAP_SNAPSHOT dump done";
+            return;
         }
+        snapshot->Serialize(&stream);
+        const_cast<v8::HeapSnapshot*>(snapshot)->Delete();
+        LOG(Info) << "jsvm_dump_heapsnapshot: tid=" << args->tid
+                  << " HEAP_SNAPSHOT dump done";
     }
 }
 
@@ -215,34 +208,22 @@ static void DumpSnapshotCallback(v8::Isolate* isolate, void* data)
         }
         args->done = true;
     }
-    args->cv.notify_all();
 
-    // Fork the dump work. Child (pid=0) waits for done and performs the dump.
-    // Parent (callback, running on the JS thread) returns immediately so the
-    // JS thread is not blocked.
+    // Fork so DoDump runs outside the JS thread's address space.
+    // Parent (JS thread) returns immediately — JS execution is NOT blocked.
+    // Child directly calls DoDump; no condition variable needed because
+    // done=true was set before fork(), so the child inherits done=true.
     pid_t pid = fork();
     if (pid < 0) {
         LOG(Error) << "jsvm_dump_heapsnapshot: fork failed, errno=" << errno;
         return;
     }
     if (pid > 0) {
-        // Parent (JS thread): fork succeeded, child is doing the dump.
-        // Return immediately so JS execution resumes. The child will be
-        // reaped by init when it exits.
-        return;
-    }
-
-    // Child process: wait for done=true, then dump, then exit.
-    // NOTE: we do NOT call notify_all() here. The JS thread already notified
-    // before forking. This wait just waits for that notification to be visible
-    // in this process's memory (which is a copy of the parent's memory).
-    {
-        std::unique_lock<std::mutex> lock(args->mu);
-        args->cv.wait(lock, [args] { return args->done; });
+        return;  // Parent: JS thread resumes immediately
     }
 
     DoDump(args);
-    _exit(args->result == DumpStatus::SUCCESS ? 0 : 1);
+    _exit(0);  // Child exits; success/failure is logged, exit code unused
 }
 
 // ─── DumpSnapshotAsync: dispatch TakeHeapSnapshot to the owner thread ─────────
@@ -251,11 +232,11 @@ static void DumpSnapshotCallback(v8::Isolate* isolate, void* data)
 //   1. Main thread: register callback via RequestInterrupt, then return.
 //   2. JS thread: at the next safepoint, HandleInterrupts fires, executing
 //      DumpSnapshotCallback.
-//   3. Callback: sets done, notifies waiters, forks — then returns immediately.
+//   3. Callback: sets done, forks — then returns immediately.
 //   4. JS thread: resumes JS execution, not blocked.
-//   5. Fork child: waits for done, then calls DoDump, exits.
+//   5. Fork child: done=true was set before fork, so it proceeds directly to DoDump.
 //
-// The main thread returns SUCCESS as soon as RequestInterrupt is queued.
+// The main thread returns 0 as soon as RequestInterrupt is queued.
 // This means the caller knows the dump has been initiated (not completed).
 // This is the non-blocking guarantee.
 //
@@ -263,19 +244,31 @@ static void DumpSnapshotCallback(v8::Isolate* isolate, void* data)
 // RequestInterrupt so the interrupt machinery has a chance to run with full
 // safepoint preparation. The callback fires synchronously in that case.
 //
-static DumpStatus DumpSnapshotAsync(uint32_t tid, v8::Isolate* isolate,
-                                    DumpFormat format)
+// Returns 0 on success (callback queued), negative errno on immediate failure.
+static int DumpSnapshotAsync(uint32_t tid, v8::Isolate* isolate, DumpFormat format)
 {
     auto* args = new DumpArgs(isolate, tid, format);
     isolate->RequestInterrupt(DumpSnapshotCallback, args);
     // Main thread returns immediately. The JS thread does the rest.
-    return DumpStatus::SUCCESS;
+    return 0;
 }
 
 } // namespace jsvm
 
 // ─── Public C API ────────────────────────────────────────────────────────────
-
+//
+// jsvm_dump_heapsnapshot: Export heap snapshot for diagnostic purposes.
+// Called from any thread (typically the main/hidump thread).
+//
+// Parameters:
+//   tid:      0 = dump all active isolates; >0 = dump isolate for specific tid
+//   dumpType: DumpFormat::HEAP_SNAPSHOT (default) or DumpFormat::RAW_HEAP
+//
+// Returns:
+//   0        success — dump initiated (not completed synchronously)
+//   -1       no isolate found for the given tid
+//   -ERRIO   RequestFileDescriptorEx failed (fd request error)
+//
 extern "C" __attribute__((visibility("default"))) int jsvm_dump_heapsnapshot(
     uint32_t tid, int dumpType)
 {
@@ -285,24 +278,22 @@ extern "C" __attribute__((visibility("default"))) int jsvm_dump_heapsnapshot(
         // tid == 0: dump all active isolates (top-of-stack for each tid)
         auto allIsolates = jsvm::IsolateRegistry::GetInstance().GetAllIsolatesWithTid();
         if (allIsolates.empty()) {
-            return static_cast<int>(jsvm::DumpStatus::ERR_NO_ISOLATE);
+            return -1;  // no isolate found
         }
         for (auto& [isoTid, isolate] : allIsolates) {
-            jsvm::DumpStatus status =
-                jsvm::DumpSnapshotAsync(isoTid, isolate, format);
-            if (status != jsvm::DumpStatus::SUCCESS) {
-                return static_cast<int>(status);
+            int ret = jsvm::DumpSnapshotAsync(isoTid, isolate, format);
+            if (ret != 0) {
+                return ret;
             }
         }
-        return static_cast<int>(jsvm::DumpStatus::SUCCESS);
+        return 0;
     }
 
     // tid != 0: dump a specific isolate
     v8::Isolate* targetIsolate =
         jsvm::IsolateRegistry::GetInstance().GetIsolateByTid(tid);
     if (targetIsolate == nullptr) {
-        return static_cast<int>(jsvm::DumpStatus::ERR_NO_ISOLATE);
+        return -1;  // no isolate found
     }
-    return static_cast<int>(
-        jsvm::DumpSnapshotAsync(tid, targetIsolate, format));
+    return jsvm::DumpSnapshotAsync(tid, targetIsolate, format);
 }

@@ -24,14 +24,6 @@
 
 namespace jsvm {
 
-enum class DumpStatus : int {
-    SUCCESS = 0,
-    ERR_FD_REQUEST = 1,
-    ERR_NO_ISOLATE = 2,
-    ERR_SERIALIZE = 3,
-};
-
-// Heap dump format: standard snapshot (Chrome DevTools format) or raw heap
 enum class DumpFormat : int {
     HEAP_SNAPSHOT = 0,    // Standard heap snapshot (default)
     RAW_HEAP = 1,          // Raw heap dump
@@ -78,7 +70,7 @@ private:
 // Parameters:
 //   tid:      0 = dump all active isolates; >0 = dump isolate for specific tid
 //   dumpType: DumpFormat::HEAP_SNAPSHOT (default) or DumpFormat::RAW_HEAP
-// Returns DumpStatus as int.
+// Returns: 0 on success, -1 if no isolate found, negative errno on fd error.
 extern "C" __attribute__((visibility("default"))) int jsvm_dump_heapsnapshot(
     uint32_t tid, int dumpType);
 
