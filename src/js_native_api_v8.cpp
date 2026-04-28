@@ -98,6 +98,7 @@ struct HeapThresholdCallbackInfo {
     uint64_t threshold;
     JSVM_HandlerForHeapThreshold callback;
     void* data;
+    bool isHeapThresholdCallbackRunning = false;
 };
 
 struct IsolateHandlerPool {
@@ -107,7 +108,6 @@ struct IsolateHandlerPool {
     GCHandlerWrappers handlerWrappersBeforeGC;
     GCHandlerWrappers handlerWrappersAfterGC;
     HeapThresholdCallbackInfo* heapThresholdCallback = nullptr;
-    bool isHeapThresholdCallbackRunning = false;
 
     ~IsolateHandlerPool()
     {
@@ -6475,21 +6475,19 @@ JSVM_Status OH_JSVM_PromiseRegisterHandler(JSVM_Env env,
 static void CheckHeapThresholdCallbacks(v8::Isolate* isolate)
 {
     auto* pool = v8impl::GetIsolateHandlerPool(isolate);
-    if (pool == nullptr || pool->heapThresholdCallback == nullptr) {
-        return;
-    }
-    if (pool->isHeapThresholdCallbackRunning) {
+    if (pool == nullptr || pool->heapThresholdCallback == nullptr ||
+        pool->heapThresholdCallback->isHeapThresholdCallbackRunning) {
         return;
     }
     v8::HeapStatistics heapStats;
     isolate->GetHeapStatistics(&heapStats);
     size_t usedHeapSize = heapStats.used_heap_size();
     if (usedHeapSize >= pool->heapThresholdCallback->threshold) {
-        pool->isHeapThresholdCallbackRunning = true;
+        pool->heapThresholdCallback->isHeapThresholdCallbackRunning = true;
         pool->heapThresholdCallback->callback(
             reinterpret_cast<JSVM_VM>(isolate), pool->heapThresholdCallback->threshold,
             pool->heapThresholdCallback->data);
-        pool->isHeapThresholdCallbackRunning = false;
+        pool->heapThresholdCallback->isHeapThresholdCallbackRunning = false;
     }
 }
 
