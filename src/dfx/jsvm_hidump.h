@@ -39,15 +39,11 @@ public:
     // are supported; the top-of-stack isolate is considered "active".
     void RegisterIsolate(v8::Isolate* isolate);
 
-    // Unregister an isolate (called from CloseVMScope).
-    // Pops from the per-thread stack. The popped isolate must match.
-    void UnregisterIsolate(v8::Isolate* isolate);
+    // Unregister the current thread's top-of-stack isolate.
+    void UnregisterIsolate();
 
     // Returns the active (top-of-stack) isolate for the given tid, or nullptr.
     v8::Isolate* GetIsolateByTid(uint32_t tid);
-
-    // Returns all active isolates (top-of-stack for each tid).
-    std::vector<v8::Isolate*> GetAllIsolates();
 
     // Returns all active isolates with their tid.
     std::vector<std::pair<uint32_t, v8::Isolate*>> GetAllIsolatesWithTid();
