@@ -6268,10 +6268,8 @@ JSVM_Status OH_JSVM_PromiseRegisterHandler(JSVM_Env env,
 static void CheckHeapThresholdCallbacks(v8::Isolate* isolate)
 {
     auto* pool = v8impl::GetIsolateHandlerPool(isolate);
-    if (pool == nullptr || pool->heapThresholdCallback == nullptr) {
-        return;
-    }
-    if (pool->heapThresholdCallback->isHeapThresholdCallbackRunning) {
+    if (pool == nullptr || pool->heapThresholdCallback == nullptr ||
+        pool->heapThresholdCallback->isHeapThresholdCallbackRunning) {
         return;
     }
     v8::HeapStatistics heapStats;
