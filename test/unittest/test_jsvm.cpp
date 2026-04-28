@@ -2250,105 +2250,6 @@ HWTEST_F(JSVMTest, JSVMUseLargeMemory, TestSize.Level1)
     JSVMTEST_CALL(OH_JSVM_CloseHandleScope(env, handle));
 }
 
-HWTEST_F(JSVMTest, JSVMWrapV8External, TestSize.Level1)
-{
-    int externalObject = 0;
-    int wrapperObject = 1;
-    int wrapperObject1 = 2;
-    JSVM_Value external;
-    JSVMTEST_CALL(OH_JSVM_CreateExternal(env, &externalObject, nullptr, nullptr, &external));
-    JSVMTEST_CALL(OH_JSVM_Wrap(env, external, &wrapperObject, nullptr, nullptr, nullptr));
-    ASSERT_EQ(OH_JSVM_Wrap(env, external, &wrapperObject1, nullptr, nullptr, nullptr), JSVM_INVALID_ARG);
-
-    int* externalAddress = nullptr;
-    int* wrapperAddress = nullptr;
-    JSVMTEST_CALL(OH_JSVM_GetValueExternal(env, external, reinterpret_cast<void **>(&externalAddress)));
-    JSVMTEST_CALL(OH_JSVM_Unwrap(env, external, reinterpret_cast<void **>(&wrapperAddress)));
-    
-    ASSERT_EQ(externalAddress, &externalObject);
-    ASSERT_EQ(wrapperAddress, &wrapperObject);
-    ASSERT_EQ(externalObject, 0);
-    ASSERT_EQ(wrapperObject, 1);
-}
-
-HWTEST_F(JSVMTest, JSVMWrapV8ExternalWithNullptr, TestSize.Level1)
-{
-    void *nullExternal = nullptr;
-    void *nullWrapper = nullptr;
-    int tmp = 1;
-
-    JSVM_Value external;
-    JSVMTEST_CALL(OH_JSVM_CreateExternal(env, nullExternal, nullptr, nullptr, &external));
-    JSVMTEST_CALL(OH_JSVM_Wrap(env, external, nullWrapper, nullptr, nullptr, nullptr));
-    ASSERT_EQ(OH_JSVM_Wrap(env, external, &tmp, nullptr, nullptr, nullptr), JSVM_INVALID_ARG);
-
-    void* externalAddress = &tmp;
-    void* wrapperAddress = &tmp;
-    JSVMTEST_CALL(OH_JSVM_GetValueExternal(env, external, &externalAddress));
-    JSVMTEST_CALL(OH_JSVM_Unwrap(env, external, &wrapperAddress));
-
-    ASSERT_EQ(externalAddress, nullExternal);
-    ASSERT_EQ(wrapperAddress, nullWrapper);
-}
-
-HWTEST_F(JSVMTest, JSVMBackgroundDeserialize, TestSize.Level1)
-{
-    std::vector<uint8_t> buffer = ReadBinaryFile(SRC_PROF_CACHE_PATH);
-    ASSERT_TRUE(!buffer.empty());
-
-    JSVM_DeserializeResult deserializeResult;
-    JSVM_CodeCache cacheData = {.cache = buffer.data(), .length = buffer.size()};
-    JSVMTEST_CALL(OH_JSVM_BackgroundDeserialize(vm, cacheData, &deserializeResult));
-
-    JSVM_Value jsSrc;
-    JSVMTEST_CALL(OH_JSVM_CreateStringUtf8(env, srcProf.c_str(), srcProf.size(), &jsSrc));
-
-    bool rejected = true;
-    JSVM_CompileOptions options[] = {
-        {.id = JSVM_COMPILE_MODE, .content.num = JSVM_COMPILE_MODE_CONSUME_CODE_CACHE},
-        {.id = JSVM_COMPILE_CODE_CACHE, .content.ptr = &cacheData},
-        {.id = JSVM_COMPILE_BACKGROUND_DESERIALIZE_RESULT, .content.ptr = deserializeResult},
-        {.id = JSVM_COMPILE_CODE_CACHE_REJECTED, .content.ptr = &rejected},
-    };
-
-    this_thread::sleep_for(std::chrono::milliseconds(100));
-
-    JSVM_Script script = nullptr;
-    JSVMTEST_CALL(
-        OH_JSVM_CompileScriptWithOptions(env, jsSrc, sizeof(options) / sizeof(JSVM_CompileOptions), options, &script));
-
-    ASSERT_TRUE(!rejected);
-    JSVMTEST_CALL(OH_JSVM_ReleaseDeserializeResult(deserializeResult));
-}
-
-HWTEST_F(JSVMTest, JSVMBackgroundDeserialize1, TestSize.Level1)
-{
-    std::vector<uint8_t> buffer = ReadBinaryFile(SRC_PROF_CACHE_PATH);
-    ASSERT_TRUE(!buffer.empty());
-
-    JSVM_CodeCache cacheData = {.cache = buffer.data(), .length = buffer.size()};
-    ASSERT_EQ(OH_JSVM_BackgroundDeserialize(vm, cacheData, nullptr), JSVM_INVALID_ARG);
-
-    JSVM_DeserializeResult deserializeResult = nullptr;
-    JSVM_CodeCache invalidCacheData1 = {.cache = nullptr, .length = buffer.size()};
-    ASSERT_EQ(OH_JSVM_BackgroundDeserialize(vm, invalidCacheData1, &deserializeResult), JSVM_INVALID_ARG);
-
-    JSVM_CodeCache invalidCacheData2 = {.cache = buffer.data(), .length = 0};
-    ASSERT_EQ(OH_JSVM_BackgroundDeserialize(vm, invalidCacheData2, &deserializeResult), JSVM_INVALID_ARG);
-
-    JSVM_Value jsSrc;
-    JSVMTEST_CALL(OH_JSVM_CreateStringUtf8(env, srcProf.c_str(), srcProf.size(), &jsSrc));
-    JSVM_CompileOptions options[] = {
-        {.id = JSVM_COMPILE_BACKGROUND_DESERIALIZE_RESULT, .content.ptr = nullptr},
-        {.id = JSVM_COMPILE_CODE_CACHE_REJECTED, .content.ptr = nullptr},
-    };
-    JSVM_Script script = nullptr;
-    JSVMTEST_CALL(
-        OH_JSVM_CompileScriptWithOptions(env, jsSrc, sizeof(options) / sizeof(JSVM_CompileOptions), options, &script));
-
-    ASSERT_EQ(OH_JSVM_ReleaseDeserializeResult(nullptr), JSVM_INVALID_ARG);
-}
-
 // ============================================================================
 // Cross-thread / Missing-VMScope tests
 //
@@ -2516,6 +2417,105 @@ HWTEST_F(JSVMNoScopeTest, CrossThreadHandoffWithAPICalls, TestSize.Level1)
     ASSERT_TRUE(t2Success.load()) << "Thread2 should perform API calls successfully after handoff";
 }
 
+HWTEST_F(JSVMTest, JSVMWrapV8External, TestSize.Level1)
+{
+    int externalObject = 0;
+    int wrapperObject = 1;
+    int wrapperObject1 = 2;
+    JSVM_Value external;
+    JSVMTEST_CALL(OH_JSVM_CreateExternal(env, &externalObject, nullptr, nullptr, &external));
+    JSVMTEST_CALL(OH_JSVM_Wrap(env, external, &wrapperObject, nullptr, nullptr, nullptr));
+    ASSERT_EQ(OH_JSVM_Wrap(env, external, &wrapperObject1, nullptr, nullptr, nullptr), JSVM_INVALID_ARG);
+
+    int* externalAddress = nullptr;
+    int* wrapperAddress = nullptr;
+    JSVMTEST_CALL(OH_JSVM_GetValueExternal(env, external, reinterpret_cast<void **>(&externalAddress)));
+    JSVMTEST_CALL(OH_JSVM_Unwrap(env, external, reinterpret_cast<void **>(&wrapperAddress)));
+
+    ASSERT_EQ(externalAddress, &externalObject);
+    ASSERT_EQ(wrapperAddress, &wrapperObject);
+    ASSERT_EQ(externalObject, 0);
+    ASSERT_EQ(wrapperObject, 1);
+}
+
+HWTEST_F(JSVMTest, JSVMWrapV8ExternalWithNullptr, TestSize.Level1)
+{
+    void *nullExternal = nullptr;
+    void *nullWrapper = nullptr;
+    int tmp = 1;
+
+    JSVM_Value external;
+    JSVMTEST_CALL(OH_JSVM_CreateExternal(env, nullExternal, nullptr, nullptr, &external));
+    JSVMTEST_CALL(OH_JSVM_Wrap(env, external, nullWrapper, nullptr, nullptr, nullptr));
+    ASSERT_EQ(OH_JSVM_Wrap(env, external, &tmp, nullptr, nullptr, nullptr), JSVM_INVALID_ARG);
+
+    void* externalAddress = &tmp;
+    void* wrapperAddress = &tmp;
+    JSVMTEST_CALL(OH_JSVM_GetValueExternal(env, external, &externalAddress));
+    JSVMTEST_CALL(OH_JSVM_Unwrap(env, external, &wrapperAddress));
+
+    ASSERT_EQ(externalAddress, nullExternal);
+    ASSERT_EQ(wrapperAddress, nullWrapper);
+}
+
+HWTEST_F(JSVMTest, JSVMBackgroundDeserialize, TestSize.Level1)
+{
+    std::vector<uint8_t> buffer = ReadBinaryFile(SRC_PROF_CACHE_PATH);
+    ASSERT_TRUE(!buffer.empty());
+
+    JSVM_DeserializeResult deserializeResult;
+    JSVM_CodeCache cacheData = {.cache = buffer.data(), .length = buffer.size()};
+    JSVMTEST_CALL(OH_JSVM_BackgroundDeserialize(vm, cacheData, &deserializeResult));
+
+    JSVM_Value jsSrc;
+    JSVMTEST_CALL(OH_JSVM_CreateStringUtf8(env, srcProf.c_str(), srcProf.size(), &jsSrc));
+
+    bool rejected = true;
+    JSVM_CompileOptions options[] = {
+        {.id = JSVM_COMPILE_MODE, .content.num = JSVM_COMPILE_MODE_CONSUME_CODE_CACHE},
+        {.id = JSVM_COMPILE_CODE_CACHE, .content.ptr = &cacheData},
+        {.id = JSVM_COMPILE_BACKGROUND_DESERIALIZE_RESULT, .content.ptr = deserializeResult},
+        {.id = JSVM_COMPILE_CODE_CACHE_REJECTED, .content.ptr = &rejected},
+    };
+
+    this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    JSVM_Script script = nullptr;
+    JSVMTEST_CALL(
+        OH_JSVM_CompileScriptWithOptions(env, jsSrc, sizeof(options) / sizeof(JSVM_CompileOptions), options, &script));
+
+    ASSERT_TRUE(!rejected);
+    JSVMTEST_CALL(OH_JSVM_ReleaseDeserializeResult(deserializeResult));
+}
+
+HWTEST_F(JSVMTest, JSVMBackgroundDeserialize1, TestSize.Level1)
+{
+    std::vector<uint8_t> buffer = ReadBinaryFile(SRC_PROF_CACHE_PATH);
+    ASSERT_TRUE(!buffer.empty());
+
+    JSVM_CodeCache cacheData = {.cache = buffer.data(), .length = buffer.size()};
+    ASSERT_EQ(OH_JSVM_BackgroundDeserialize(vm, cacheData, nullptr), JSVM_INVALID_ARG);
+
+    JSVM_DeserializeResult deserializeResult = nullptr;
+    JSVM_CodeCache invalidCacheData1 = {.cache = nullptr, .length = buffer.size()};
+    ASSERT_EQ(OH_JSVM_BackgroundDeserialize(vm, invalidCacheData1, &deserializeResult), JSVM_INVALID_ARG);
+
+    JSVM_CodeCache invalidCacheData2 = {.cache = buffer.data(), .length = 0};
+    ASSERT_EQ(OH_JSVM_BackgroundDeserialize(vm, invalidCacheData2, &deserializeResult), JSVM_INVALID_ARG);
+
+    JSVM_Value jsSrc;
+    JSVMTEST_CALL(OH_JSVM_CreateStringUtf8(env, srcProf.c_str(), srcProf.size(), &jsSrc));
+    JSVM_CompileOptions options[] = {
+        {.id = JSVM_COMPILE_BACKGROUND_DESERIALIZE_RESULT, .content.ptr = nullptr},
+        {.id = JSVM_COMPILE_CODE_CACHE_REJECTED, .content.ptr = nullptr},
+    };
+    JSVM_Script script = nullptr;
+    JSVMTEST_CALL(
+        OH_JSVM_CompileScriptWithOptions(env, jsSrc, sizeof(options) / sizeof(JSVM_CompileOptions), options, &script));
+
+    ASSERT_EQ(OH_JSVM_ReleaseDeserializeResult(nullptr), JSVM_INVALID_ARG);
+}
+
 // ============================================================================
 // Heap Threshold Callback Tests
 // ============================================================================
@@ -2539,13 +2539,10 @@ HWTEST_F(JSVMTest, JSVMHeapThresholdCallbackBasicTest, TestSize.Level1)
 
     int testData = 0x12345678;
 
-    ASSERT_EQ(OH_JSVM_AddHeapThresholdCallback(vm, 1024 * 1024, OnHeapThresholdReached, &testData), JSVM_OK);
-
-    ASSERT_EQ(OH_JSVM_AddHeapThresholdCallback(vm, 2048 * 1024, OnHeapThresholdReached, &testData), JSVM_INVALID_ARG);
-
-    ASSERT_EQ(OH_JSVM_RemoveHeapThresholdCallback(vm, 1024 * 1024, OnHeapThresholdReached, &testData), JSVM_OK);
-
-    ASSERT_EQ(OH_JSVM_RemoveHeapThresholdCallback(vm, 1024 * 1024, OnHeapThresholdReached, &testData),
+    ASSERT_EQ(OH_JSVM_SetHeapThresholdCallback(vm, 1024 * 1024, OnHeapThresholdReached, &testData), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_SetHeapThresholdCallback(vm, 2048 * 1024, OnHeapThresholdReached, &testData), JSVM_INVALID_ARG);
+    ASSERT_EQ(OH_JSVM_ClearHeapThresholdCallback(vm, 1024 * 1024, OnHeapThresholdReached, &testData), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_ClearHeapThresholdCallback(vm, 1024 * 1024, OnHeapThresholdReached, &testData),
         JSVM_INVALID_ARG);
 }
 
@@ -2553,18 +2550,17 @@ HWTEST_F(JSVMTest, JSVMHeapThresholdCallbackNegativeTest, TestSize.Level1)
 {
     int testData = 0x12345678;
 
-    ASSERT_EQ(OH_JSVM_AddHeapThresholdCallback(nullptr, 1024 * 1024, OnHeapThresholdReached, &testData),
+    ASSERT_EQ(OH_JSVM_SetHeapThresholdCallback(nullptr, 1024 * 1024, OnHeapThresholdReached, &testData),
         JSVM_INVALID_ARG);
-    ASSERT_EQ(OH_JSVM_AddHeapThresholdCallback(vm, 1024 * 1024, nullptr, &testData), JSVM_INVALID_ARG);
-    ASSERT_EQ(OH_JSVM_AddHeapThresholdCallback(vm, 0, OnHeapThresholdReached, &testData), JSVM_INVALID_ARG);
-    ASSERT_EQ(OH_JSVM_AddHeapThresholdCallback(vm, UINT64_MAX, OnHeapThresholdReached, &testData),
+    ASSERT_EQ(OH_JSVM_SetHeapThresholdCallback(vm, 1024 * 1024, nullptr, &testData), JSVM_INVALID_ARG);
+    ASSERT_EQ(OH_JSVM_SetHeapThresholdCallback(vm, 0, OnHeapThresholdReached, &testData), JSVM_INVALID_ARG);
+    ASSERT_EQ(OH_JSVM_SetHeapThresholdCallback(vm, UINT64_MAX, OnHeapThresholdReached, &testData),
         JSVM_INVALID_ARG);
-
-    ASSERT_EQ(OH_JSVM_RemoveHeapThresholdCallback(nullptr, 1024 * 1024, OnHeapThresholdReached, &testData),
+    ASSERT_EQ(OH_JSVM_ClearHeapThresholdCallback(nullptr, 1024 * 1024, OnHeapThresholdReached, &testData),
         JSVM_INVALID_ARG);
-    ASSERT_EQ(OH_JSVM_RemoveHeapThresholdCallback(vm, 1024 * 1024, nullptr, &testData), JSVM_INVALID_ARG);
-    ASSERT_EQ(OH_JSVM_RemoveHeapThresholdCallback(vm, 999999, OnHeapThresholdReached, &testData), JSVM_INVALID_ARG);
-    ASSERT_EQ(OH_JSVM_RemoveHeapThresholdCallback(vm, 1024 * 1024, OnHeapThresholdReached, &testData),
+    ASSERT_EQ(OH_JSVM_ClearHeapThresholdCallback(vm, 1024 * 1024, nullptr, &testData), JSVM_INVALID_ARG);
+    ASSERT_EQ(OH_JSVM_ClearHeapThresholdCallback(vm, 999999, OnHeapThresholdReached, &testData), JSVM_INVALID_ARG);
+    ASSERT_EQ(OH_JSVM_ClearHeapThresholdCallback(vm, 1024 * 1024, OnHeapThresholdReached, &testData),
         JSVM_INVALID_ARG);
 }
 
@@ -2577,7 +2573,7 @@ HWTEST_F(JSVMTest, JSVMHeapThresholdCallbackTriggerTest, TestSize.Level1)
     int testData = 0xDEADBEEF;
     uint64_t smallThreshold = 1024;
 
-    ASSERT_EQ(OH_JSVM_AddHeapThresholdCallback(vm, smallThreshold, OnHeapThresholdReached, &testData), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_SetHeapThresholdCallback(vm, smallThreshold, OnHeapThresholdReached, &testData), JSVM_OK);
 
     jsvm::TryTriggerGC();
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -2586,7 +2582,7 @@ HWTEST_F(JSVMTest, JSVMHeapThresholdCallbackTriggerTest, TestSize.Level1)
     EXPECT_EQ(g_callbackThreshold, smallThreshold);
     EXPECT_EQ(g_callbackData, &testData);
 
-    ASSERT_EQ(OH_JSVM_RemoveHeapThresholdCallback(vm, smallThreshold, OnHeapThresholdReached, &testData), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_ClearHeapThresholdCallback(vm, smallThreshold, OnHeapThresholdReached, &testData), JSVM_OK);
 }
 
 static bool g_selfRemoveCallbackRemoved = false;
@@ -2605,10 +2601,10 @@ static void SelfRemoveAndReAddCallback(JSVM_VM vm, uint64_t threshold, void* dat
         g_selfRemoveCallbackRemoved = true;
         int* dataPtr = reinterpret_cast<int*>(data);
         JSVM_Status removeStatus =
-            OH_JSVM_RemoveHeapThresholdCallback(vm, threshold, SelfRemoveAndReAddCallback, dataPtr);
+            OH_JSVM_ClearHeapThresholdCallback(vm, threshold, SelfRemoveAndReAddCallback, dataPtr);
         if (removeStatus == JSVM_OK) {
             JSVM_Status addStatus =
-                OH_JSVM_AddHeapThresholdCallback(vm, threshold, OnHeapThresholdReached, &g_selfRemoveTestData2);
+                OH_JSVM_SetHeapThresholdCallback(vm, threshold, OnHeapThresholdReached, &g_selfRemoveTestData2);
             g_selfRemoveReAddSucceeded = (addStatus == JSVM_OK);
         }
     }
@@ -2623,7 +2619,7 @@ HWTEST_F(JSVMTest, JSVMHeapThresholdCallbackRemoveAndReAddInCallback, TestSize.L
     g_selfRemoveTestData2 = 0x22222222;
     g_selfRemoveThreshold = 1024;
 
-    ASSERT_EQ(OH_JSVM_AddHeapThresholdCallback(vm, g_selfRemoveThreshold, SelfRemoveAndReAddCallback,
+    ASSERT_EQ(OH_JSVM_SetHeapThresholdCallback(vm, g_selfRemoveThreshold, SelfRemoveAndReAddCallback,
         &g_selfRemoveTestData1), JSVM_OK);
 
     jsvm::TryTriggerGC();
@@ -2633,7 +2629,7 @@ HWTEST_F(JSVMTest, JSVMHeapThresholdCallbackRemoveAndReAddInCallback, TestSize.L
     EXPECT_TRUE(g_selfRemoveCallbackRemoved);
     EXPECT_TRUE(g_selfRemoveReAddSucceeded);
 
-    ASSERT_EQ(OH_JSVM_RemoveHeapThresholdCallback(vm, g_selfRemoveThreshold, OnHeapThresholdReached,
+    ASSERT_EQ(OH_JSVM_ClearHeapThresholdCallback(vm, g_selfRemoveThreshold, OnHeapThresholdReached,
         &g_selfRemoveTestData2), JSVM_OK);
 }
 
@@ -2694,7 +2690,7 @@ HWTEST_F(JSVMTest, JSVMHeapThresholdCallbackWithTakeRawHeapSnapshot, TestSize.Le
     g_heapThresholdCallbackCalled = false;
     g_snapshotTakenPtr = false;
 
-    ASSERT_EQ(OH_JSVM_AddHeapThresholdCallback(vm, 1024, SnapshotCallback, nullptr), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_SetHeapThresholdCallback(vm, 1024, SnapshotCallback, nullptr), JSVM_OK);
 
     jsvm::TryTriggerGC();
 
@@ -2705,7 +2701,7 @@ HWTEST_F(JSVMTest, JSVMHeapThresholdCallbackWithTakeRawHeapSnapshot, TestSize.Le
     }
 
     EXPECT_TRUE(g_heapThresholdCallbackCalled);
-    ASSERT_EQ(OH_JSVM_RemoveHeapThresholdCallback(vm, 1024, SnapshotCallback, nullptr), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_ClearHeapThresholdCallback(vm, 1024, SnapshotCallback, nullptr), JSVM_OK);
 }
 
 static bool g_syncSnapshotFinished = false;
@@ -2729,13 +2725,13 @@ HWTEST_F(JSVMTest, JSVMHeapThresholdCallbackWithSyncSnapshot, TestSize.Level1)
     g_heapThresholdCallbackCalled = false;
     g_syncSnapshotFinished = false;
 
-    ASSERT_EQ(OH_JSVM_AddHeapThresholdCallback(vm, 1024, SyncSnapshotThresholdCallback, nullptr), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_SetHeapThresholdCallback(vm, 1024, SyncSnapshotThresholdCallback, nullptr), JSVM_OK);
 
     jsvm::TryTriggerGC();
 
     EXPECT_TRUE(g_heapThresholdCallbackCalled);
     EXPECT_TRUE(g_syncSnapshotFinished);
-    ASSERT_EQ(OH_JSVM_RemoveHeapThresholdCallback(vm, 1024, SyncSnapshotThresholdCallback, nullptr), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_ClearHeapThresholdCallback(vm, 1024, SyncSnapshotThresholdCallback, nullptr), JSVM_OK);
 }
 
 HWTEST_F(JSVMTest, JSVMHeapThresholdAddCallbackWithOutRemove, TestSize.Level1)
@@ -2743,7 +2739,7 @@ HWTEST_F(JSVMTest, JSVMHeapThresholdAddCallbackWithOutRemove, TestSize.Level1)
     g_heapThresholdCallbackCalled = false;
     g_syncSnapshotFinished = false;
 
-    ASSERT_EQ(OH_JSVM_AddHeapThresholdCallback(vm, 1024, SyncSnapshotThresholdCallback, nullptr), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_SetHeapThresholdCallback(vm, 1024, SyncSnapshotThresholdCallback, nullptr), JSVM_OK);
 
     jsvm::TryTriggerGC();
 

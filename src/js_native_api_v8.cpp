@@ -6510,7 +6510,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_TakeRawHeapSnapshot(JSVM_VM vm, JSVM_OutputStrea
     return JSVM_OK;
 }
 
-JSVM_EXTERN JSVM_Status OH_JSVM_AddHeapThresholdCallback(JSVM_VM vm,
+JSVM_EXTERN JSVM_Status OH_JSVM_SetHeapThresholdCallback(JSVM_VM vm,
                                                          uint64_t threshold,
                                                          JSVM_HandlerForHeapThreshold callback,
                                                          void* data)
@@ -6539,10 +6539,10 @@ JSVM_EXTERN JSVM_Status OH_JSVM_AddHeapThresholdCallback(JSVM_VM vm,
     return JSVM_OK;
 }
 
-JSVM_EXTERN JSVM_Status OH_JSVM_RemoveHeapThresholdCallback(JSVM_VM vm,
-                                                            uint64_t threshold,
-                                                            JSVM_HandlerForHeapThreshold callback,
-                                                            void* data)
+JSVM_EXTERN JSVM_Status OH_JSVM_ClearHeapThresholdCallback(JSVM_VM vm,
+                                                           uint64_t threshold,
+                                                           JSVM_HandlerForHeapThreshold callback,
+                                                           void* data)
 {
     CHECK_ARG_WITHOUT_ENV(vm);
     CHECK_ARG_WITHOUT_ENV(callback);
