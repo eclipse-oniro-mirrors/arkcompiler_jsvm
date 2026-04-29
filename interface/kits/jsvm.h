@@ -2612,74 +2612,80 @@ JSVM_EXTERN JSVM_Status OH_JSVM_StopCpuProfiler(JSVM_VM vm,
 JSVM_EXTERN JSVM_Status OH_JSVM_TakeHeapSnapshot(JSVM_VM vm, JSVM_OutputStream stream, void* streamData);
 
 /**
-* @brief This function takes the current heap snapshot and outputs it to the
-* stream in raw heap format (binary format). The raw heap format is VM-specific
-* and its layout is not guaranteed to be stable across different versions.
-* This operation may pause the application temporarily, and frequent invocation
-* may generate large snapshot files and increase disk usage, so callers should
-* manage generated files appropriately if files are written to disk.
-* The stream callback is invoked synchronously on the thread where the VM is
-* running. The callback should avoid long blocking operations. If the callback
-* returns false, the output stream is aborted, snapshot generation stops.
-*
-* @param vm The VM whose heap snapshot is taken.
-* @param stream The output stream callback for receiving the binary data.
-* @param streamData Optional data to be passed to the stream callback.
-* @return Returns JSVM functions result code.
-*         Returns JSVM_INVALID_ARG if vm or stream is NULL.
-*         Returns JSVM_OK in all other cases.
-* @since 26.0.0
-*/
+ * @brief This function takes the current heap snapshot and outputs it to the
+ * stream in raw heap format (binary format). The raw heap format is VM-specific
+ * and its layout is not guaranteed to be stable across different versions.
+ * This operation may pause the application temporarily, and frequent invocation
+ * may generate large snapshot files and increase disk usage, so callers should
+ * manage generated files appropriately if files are written to disk.
+ * The stream callback is invoked synchronously on the thread where the VM is
+ * running. The callback should avoid long blocking operations. If the callback
+ * returns false, the output stream is aborted, snapshot generation stops.
+ *
+ * @param vm The VM whose heap snapshot is taken.
+ * @param stream The output stream callback for receiving the binary data.
+ * @param streamData Optional data to be passed to the stream callback.
+ * @return Returns JSVM functions result code.
+ *         Returns JSVM_INVALID_ARG if vm or stream is NULL.
+ *         Returns JSVM_OK in all other cases.
+ * @since 26.0.0
+ */
 JSVM_EXTERN JSVM_Status OH_JSVM_TakeRawHeapSnapshot(JSVM_VM vm,
     JSVM_OutputStream stream,
     void *streamData);
 
 /**
-* @brief Register a heap threshold callback for vm and the vm can only have one heap
-* threshold callback. The registered callback should be removed by
-* OH_JSVM_RemoveHeapThresholdCallback when it is no longer needed.
-* This API is not thread-safe and must be called on the thread where the vm is
-* running. The callback will be called synchronously on the same thread, and
-* threshold checks are skipped while the callback is running. The registered callback
-* is identified (threshold, callback, data).
-*
-* @param vm The VM whose heap usage will be monitored.
-* @param threshold The heap usage threshold in bytes. The value must be greater
-* than 0 and must not exceed heapSizeLimit, where heapSizeLimit is a field in
-* JSVM_HeapStatistics.
-* @param callback The callback function to be invoked when the threshold is reached.
-* @param data Optional user-provided data passed to the callback.The caller is
-* responsible for managing the lifetime of this data.
-* @return Returns JSVM functions result code.
-*         Returns JSVM_OK if the function executed successfully.
-*         Returns JSVM_INVALID_ARG if vm or callback is NULL, or if threshold
-*         is zero or exceeds heapSizeLimit, or if a heap threshold callback
-*         has already been registered for the VM.
-* @since 26.0.0
-*/
-JSVM_EXTERN JSVM_Status OH_JSVM_AddHeapThresholdCallback(
+ * @brief Set a heap threshold callback for vm and the vm can only have one heap
+ * threshold callback. The registered callback should be cleared by
+ * OH_JSVM_ClearHeapThresholdCallback when it is no longer needed.
+ * This API is not thread-safe and must be called on the thread where the vm is
+ * running. The threshold is checked around GC, and the callback is invoked when
+ * the observed heap usage is greater than or equal to threshold. The callback
+ * will be called synchronously on the same thread, and threshold checks are
+ * skipped while the callback is running. After the callback returns, if the
+ * heap usage is still greater than or equal to threshold, the callback will be
+ * invoked again around the next GC. The callback does not need to be registered
+ * again after it returns. The registered callback is identified (threshold,
+ * callback, data).
+ *
+ * @param vm The VM whose heap usage will be monitored.
+ * @param threshold The heap usage threshold in bytes. The value must be greater
+ * than 0 and must not exceed heapSizeLimit, where heapSizeLimit is a field in
+ * JSVM_HeapStatistics.
+ * @param callback The callback function to be invoked when a threshold check
+ * observes heap usage greater than or equal to threshold.
+ * @param data Optional user-provided data passed to the callback.The caller is
+ * responsible for managing the lifetime of this data.
+ * @return Returns JSVM functions result code.
+ *         Returns JSVM_OK if the function executed successfully.
+ *         Returns JSVM_INVALID_ARG if vm or callback is NULL, or if threshold
+ *         is zero or exceeds heapSizeLimit, or if a heap threshold callback
+ *         has already been registered for the VM.
+ * @since 26.0.0
+ */
+JSVM_EXTERN JSVM_Status OH_JSVM_SetHeapThresholdCallback(
     JSVM_VM vm,
     uint64_t threshold,
     JSVM_HandlerForHeapThreshold callback,
     void *data);
 
 /**
-* @brief Remove the heap threshold callback previously registered for vm.
-* This API is not thread-safe and must be called on the thread where the vm
-* is running. The registered callback is identified (threshold, callback, data).
-*
-* @param vm The VM whose heap threshold callback is to be removed.
-* @param threshold The heap usage threshold in bytes which is previously registered.
-* @param callback The callback function previously registered by
-*        OH_JSVM_AddHeapThresholdCallback.
-* @param data The user-provided data used during registration.
-* @return Returns JSVM functions result code.
-*         Returns JSVM_OK if the function executed successfully.
-*         Returns JSVM_INVALID_ARG if vm or callback is NULL, or if the
-*         (threshold, callback, data) does not match registered callback.
-* @since 26.0.0
-*/
-JSVM_EXTERN JSVM_Status OH_JSVM_RemoveHeapThresholdCallback(
+ * @brief Clear the heap threshold callback previously registered for vm.
+ * This API is not thread-safe and must be called on the thread where the vm
+ * is running. The registered callback is identified (threshold, callback, data).
+ *
+ * @param vm The VM whose heap threshold callback is to be cleared.
+ * @param threshold The heap usage threshold in bytes which is previously registered.
+ * @param callback The callback function previously registered by
+ *        OH_JSVM_SetHeapThresholdCallback.
+ * @param data The user-provided data used during registration.
+ * @return Returns JSVM functions result code.
+ *         Returns JSVM_OK if the function executed successfully.
+ *         Returns JSVM_INVALID_ARG if vm or callback is NULL, or if the
+ *         (threshold, callback, data) does not match registered callback.
+ * @since 26.0.0
+ */
+JSVM_EXTERN JSVM_Status OH_JSVM_ClearHeapThresholdCallback(
     JSVM_VM vm,
     uint64_t threshold,
     JSVM_HandlerForHeapThreshold callback,
