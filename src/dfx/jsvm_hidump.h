@@ -29,8 +29,7 @@ enum class DumpFormat : int {
     RAW_HEAP = 1,          // Raw heap dump
 };
 
-class IsolateRegistry
-{
+class IsolateRegistry {
 public:
     static IsolateRegistry& GetInstance();
 

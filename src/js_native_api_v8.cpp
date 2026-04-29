@@ -1254,7 +1254,6 @@ JSVM_Status OH_JSVM_OpenVMScope(JSVM_VM vm, JSVM_VMScope* result)
 
 JSVM_Status OH_JSVM_CloseVMScope(JSVM_VM vm, JSVM_VMScope scope)
 {
-    auto isolate = reinterpret_cast<v8::Isolate*>(vm);
     auto v8scope = reinterpret_cast<v8::Isolate::Scope*>(scope);
     jsvm::IsolateRegistry::GetInstance().UnregisterIsolate();
     delete v8scope;

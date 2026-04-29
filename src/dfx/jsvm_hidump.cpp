@@ -80,8 +80,7 @@ std::vector<std::pair<uint32_t, v8::Isolate*>> IsolateRegistry::GetAllIsolatesWi
 
 // ─── FdOutputStream ─────────────────────────────────────────────────────────
 
-class FdOutputStream : public v8::OutputStream
-{
+class FdOutputStream : public v8::OutputStream {
 public:
     explicit FdOutputStream(int fd) : fd_(fd) {}
     WriteResult WriteAsciiChunk(char* data, int size) override
@@ -89,11 +88,7 @@ public:
         ssize_t written = write(fd_, data, static_cast<size_t>(size));
         return (written == static_cast<ssize_t>(size)) ? kContinue : kAbort;
     }
-    void EndOfStream() override
-    {
-        close(fd_);
-        fd_ = -1;
-    }
+    void EndOfStream() override {}
 private:
     int fd_;
 };
@@ -103,8 +98,7 @@ private:
 // Encapsulates all preparation for a heap dump: owning isolate, target tid,
 // format, and the output fd obtained from faultloggerd.
 //
-struct DumpContext
-{
+struct DumpContext {
     v8::Isolate* isolate;
     uint32_t tid;
     DumpFormat format;
@@ -115,22 +109,22 @@ struct DumpContext
     DumpContext(v8::Isolate* iso, uint32_t t, DumpFormat fmt, int fileDescriptor)
         : isolate(iso), tid(t), format(fmt), fd(fileDescriptor), done(false)
     {}
-
-    // Request an output fd from faultloggerd. Returns fd on success, negative errno on failure.
-    // Must be called on the main thread (not inside a v8 interrupt callback).
-    static int RequestOutputFd(uint32_t targetTid)
-    {
-        struct FaultLoggerdRequest req = {};
-        req.head.clientType = LOG_FILE_DES_CLIENT;
-        req.head.clientPid = static_cast<int32_t>(getpid());
-        req.pid = static_cast<int32_t>(getpid());
-        req.type = JSVM_HEAP_SNAPSHOT;
-        req.tid = static_cast<int32_t>(targetTid);
-        req.time = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
-        return RequestFileDescriptorEx(&req);
-    }
 };
+
+// Request an output fd from faultloggerd. Returns fd on success, negative errno on failure.
+// Must be called on the main thread (not inside a v8 interrupt callback).
+static int RequestOutputFd(uint32_t targetTid)
+{
+    struct FaultLoggerdRequest req = {};
+    req.head.clientType = LOG_FILE_DES_CLIENT;
+    req.head.clientPid = static_cast<int32_t>(platform::OS::GetPid());
+    req.pid = req.head.clientPid;
+    req.type = JSVM_HEAP_SNAPSHOT;
+    req.tid = static_cast<int32_t>(targetTid);
+    req.time = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    return RequestFileDescriptorEx(&req);
+}
 
 // ─── DoDump: performs the actual heap snapshot work ─────────────────────────
 
@@ -187,13 +181,14 @@ static void DumpSnapshotCallback(v8::Isolate* isolate, void* data)
         close(ctx->fd);
         return;
     }
-    if (pid > 0) {
+    if (pid > 0) {  // Parent process.
         close(ctx->fd);
         return;
     }
 
     // Child: done=true already set before fork, proceed directly.
     DoDump(ctx);
+    close(ctx->fd);
     _exit(0);
 }
 
@@ -201,7 +196,7 @@ static void DumpSnapshotCallback(v8::Isolate* isolate, void* data)
 
 static int DumpSnapshotAsync(v8::Isolate* isolate, DumpFormat format, uint32_t tid)
 {
-    int fd = DumpContext::RequestOutputFd(tid);
+    int fd = RequestOutputFd(tid);
     if (fd < 0) {
         return fd;
     }
@@ -212,7 +207,7 @@ static int DumpSnapshotAsync(v8::Isolate* isolate, DumpFormat format, uint32_t t
 
 } // namespace jsvm
 
-// ─── Public C API ────────────────────────────────────────────────────────────
+// ─── C API ────────────────────────────────────────────────────────────
 
 extern "C" __attribute__((visibility("default"))) int jsvm_dump_heapsnapshot(
     uint32_t tid, int dumpType)
