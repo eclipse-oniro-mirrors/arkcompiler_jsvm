@@ -17,6 +17,7 @@
 
 #include <cstdint>
 
+extern "C" {
 constexpr int32_t JSVM_HEAP_SNAPSHOT = 115;
 constexpr int8_t LOG_FILE_DES_CLIENT = 0;
 
@@ -49,5 +50,6 @@ typedef struct FaultLoggerdRequest {
  * @return if succeed return file descriptor, otherwise return -1
 */
 int32_t RequestFileDescriptorEx(struct FaultLoggerdRequest* request);
+}
 
 #endif

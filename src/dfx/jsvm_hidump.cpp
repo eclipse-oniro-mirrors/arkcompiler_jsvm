@@ -17,7 +17,7 @@
 
 #include <unistd.h>
 #include <chrono>
-#include <sys/syscall.h>
+#include <memory>
 #include <sys/wait.h>
 
 #include "jsvm_log.h"
@@ -93,22 +93,48 @@ private:
     int fd_;
 };
 
-// ─── DumpContext ───────────────────────────────────────────────────────────
+// ─── DumpContext ────────────────────────────────────────────────────────────
 //
-// Encapsulates all preparation for a heap dump: owning isolate, target tid,
-// format, and the output fd obtained from faultloggerd.
+// Owns the heap dump context including the output fd. The destructor closes
+// the fd so it is never leaked, regardless of which code path exits.
 //
-struct DumpContext {
-    v8::Isolate* isolate;
-    uint32_t tid;
-    DumpFormat format;
-    int fd;
-    std::mutex mu;
-    bool done;
-
+class DumpContext
+{
+public:
     DumpContext(v8::Isolate* iso, uint32_t t, DumpFormat fmt, int fileDescriptor)
-        : isolate(iso), tid(t), format(fmt), fd(fileDescriptor), done(false)
+        : isolate_(iso), tid_(t), format_(fmt), fd_(fileDescriptor), done_(false)
     {}
+
+    ~DumpContext()
+    {
+        if (fd_ >= 0) {
+            close(fd_);
+            fd_ = -1;
+        }
+    }
+
+    v8::Isolate* isolate() const { return isolate_; }
+    uint32_t tid() const { return tid_; }
+    DumpFormat format() const { return format_; }
+    int fd() const { return fd_; }
+
+    bool MarkDone()
+    {
+        std::lock_guard<std::mutex> lock(mu_);
+        if (done_) {
+            return false;
+        }
+        done_ = true;
+        return true;
+    }
+
+private:
+    v8::Isolate* isolate_;
+    uint32_t tid_;
+    DumpFormat format_;
+    int fd_;
+    std::mutex mu_;
+    bool done_;
 };
 
 // Request an output fd from faultloggerd. Returns fd on success, negative errno on failure.
@@ -130,33 +156,33 @@ static int RequestOutputFd(uint32_t targetTid)
 
 static void DoDump(DumpContext* ctx)
 {
-    if (ctx->fd < 0) {
-        LOG(Error) << "jsvm_dump_heapsnapshot: invalid fd=" << ctx->fd;
+    if (ctx->fd() < 0) {
+        LOG(Error) << "jsvm_dump_heapsnapshot: invalid fd=" << ctx->fd();
         return;
     }
 
-    v8::Isolate::Scope isolateScope(ctx->isolate);
-    v8::HandleScope handleScope(ctx->isolate);
-    FdOutputStream stream(ctx->fd);
+    v8::Isolate::Scope isolateScope(ctx->isolate());
+    v8::HandleScope handleScope(ctx->isolate());
+    FdOutputStream stream(ctx->fd());
 
-    if (ctx->format == DumpFormat::RAW_HEAP) {
-        LOG(Info) << "jsvm_dump_heapsnapshot: tid=" << ctx->tid
+    if (ctx->format() == DumpFormat::RAW_HEAP) {
+        LOG(Info) << "jsvm_dump_heapsnapshot: tid=" << ctx->tid()
                   << " RAW_HEAP dump start";
-        ctx->isolate->GetHeapProfiler()->DumpRawHeapSnapshot(&stream);
-        LOG(Info) << "jsvm_dump_heapsnapshot: tid=" << ctx->tid
+        ctx->isolate()->GetHeapProfiler()->DumpRawHeapSnapshot(&stream);
+        LOG(Info) << "jsvm_dump_heapsnapshot: tid=" << ctx->tid()
                   << " RAW_HEAP dump done";
     } else {
-        LOG(Info) << "jsvm_dump_heapsnapshot: tid=" << ctx->tid
+        LOG(Info) << "jsvm_dump_heapsnapshot: tid=" << ctx->tid()
                   << " HEAP_SNAPSHOT dump start";
         const v8::HeapSnapshot* snapshot =
-            ctx->isolate->GetHeapProfiler()->TakeHeapSnapshot();
+            ctx->isolate()->GetHeapProfiler()->TakeHeapSnapshot();
         if (snapshot == nullptr) {
             LOG(Error) << "jsvm_dump_heapsnapshot: TakeHeapSnapshot returned nullptr";
             return;
         }
         snapshot->Serialize(&stream);
         const_cast<v8::HeapSnapshot*>(snapshot)->Delete();
-        LOG(Info) << "jsvm_dump_heapsnapshot: tid=" << ctx->tid
+        LOG(Info) << "jsvm_dump_heapsnapshot: tid=" << ctx->tid()
                   << " HEAP_SNAPSHOT dump done";
     }
 }
@@ -165,30 +191,24 @@ static void DoDump(DumpContext* ctx)
 
 static void DumpSnapshotCallback(v8::Isolate* isolate, void* data)
 {
-    auto* ctx = static_cast<DumpContext*>(data);
+    std::unique_ptr<DumpContext> ctx(static_cast<DumpContext*>(data));
 
-    {
-        std::lock_guard<std::mutex> lock(ctx->mu);
-        if (ctx->done) {
-            return;
-        }
-        ctx->done = true;
+    if (!ctx->MarkDone()) {
+        return;  // ~DumpContext closes fd
     }
 
     pid_t pid = fork();
     if (pid < 0) {
         LOG(Error) << "jsvm_dump_heapsnapshot: fork failed, errno=" << errno;
-        close(ctx->fd);
-        return;
+        return;  // ~DumpContext closes fd
     }
-    if (pid > 0) {  // Parent process.
-        close(ctx->fd);
-        return;
+    if (pid > 0) {
+        return;  // Parent: ~DumpContext closes fd
     }
 
-    // Child: done=true already set before fork, proceed directly.
-    DoDump(ctx);
-    close(ctx->fd);
+    // Child: done=true was set before fork, proceed directly.
+    DoDump(ctx.get());
+    ctx.reset();  // ~DumpContext closes fd
     _exit(0);
 }
 
