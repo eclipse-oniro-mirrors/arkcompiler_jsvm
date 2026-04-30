@@ -40,6 +40,7 @@
 #include "libplatform/v8-tracing.h"
 #include "platform/platform.h"
 #include "sourcemap.h"
+#include "dfx/jsvm_hidump.h"
 
 #ifdef V8_USE_PERFETTO
 #error Unsupported Perfetto.
@@ -1265,6 +1266,7 @@ JSVM_Status OH_JSVM_DestroyVM(JSVM_VM vm)
 JSVM_Status OH_JSVM_OpenVMScope(JSVM_VM vm, JSVM_VMScope* result)
 {
     auto isolate = reinterpret_cast<v8::Isolate*>(vm);
+    jsvm::IsolateRegistry::GetInstance().RegisterIsolate(isolate);
     auto scope = new v8::Isolate::Scope(isolate);
     *result = reinterpret_cast<JSVM_VMScope>(scope);
     return JSVM_OK;
@@ -1273,6 +1275,7 @@ JSVM_Status OH_JSVM_OpenVMScope(JSVM_VM vm, JSVM_VMScope* result)
 JSVM_Status OH_JSVM_CloseVMScope(JSVM_VM vm, JSVM_VMScope scope)
 {
     auto v8scope = reinterpret_cast<v8::Isolate::Scope*>(scope);
+    jsvm::IsolateRegistry::GetInstance().UnregisterIsolate();
     delete v8scope;
     return JSVM_OK;
 }

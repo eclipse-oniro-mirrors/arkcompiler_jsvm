@@ -132,6 +132,7 @@ action("build_libjsvm") {
     "openssl:libssl_shared",
     "resource_schedule_service:ressched_client",
     "zlib:libz",
+    "faultloggerd:libfaultloggerd",
   ]
 
   deps = [
