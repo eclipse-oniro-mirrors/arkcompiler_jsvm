@@ -98,8 +98,7 @@ private:
 // Owns the heap dump context including the output fd. The destructor closes
 // the fd so it is never leaked, regardless of which code path exits.
 //
-class DumpContext
-{
+class DumpContext {
 public:
     DumpContext(v8::Isolate* iso, uint32_t t, DumpFormat fmt, int fileDescriptor)
         : isolate_(iso), tid_(t), format_(fmt), fd_(fileDescriptor), done_(false)

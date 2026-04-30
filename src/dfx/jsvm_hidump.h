@@ -60,13 +60,4 @@ private:
 
 } // namespace jsvm
 
-// jsvm_dump_heapsnapshot: Export heap snapshot for diagnostic purposes.
-// Called from any thread (typically the main/hidump thread).
-// Parameters:
-//   tid:      0 = dump all active isolates; >0 = dump isolate for specific tid
-//   dumpType: DumpFormat::HEAP_SNAPSHOT (default) or DumpFormat::RAW_HEAP
-// Returns: 0 on success, -1 if no isolate found, negative errno on fd error.
-extern "C" __attribute__((visibility("default"))) int jsvm_dump_heapsnapshot(
-    uint32_t tid, int dumpType);
-
 #endif // JSVM_HIDUMP_H

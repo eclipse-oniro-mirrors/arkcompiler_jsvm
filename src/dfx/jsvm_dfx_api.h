@@ -49,4 +49,12 @@ extern "C" int destroy_jsvm_extractor(uintptr_t extractor);
 
 extern "C" int jsvm_parse_js_frame_info(uintptr_t pc, uintptr_t extractor, JsvmFunction* jsvmFunction);
 
+// jsvm_dump_heapsnapshot: Export heap snapshot for diagnostic purposes.
+// Called from any thread (typically the main/hidump thread).
+// Parameters:
+//   tid:      0 = dump all active isolates; >0 = dump isolate for specific tid
+//   dumpType: DumpFormat::HEAP_SNAPSHOT (0) or DumpFormat::RAW_HEAP (1)
+// Returns: 0 on success, -1 if no isolate found, negative errno on fd error.
+extern "C" int jsvm_dump_heapsnapshot(uint32_t tid, int dumpType);
+
 #endif
