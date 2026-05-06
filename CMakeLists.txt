@@ -89,6 +89,7 @@ set (LIB_DIRS
   "${LIB_ROOT_DIR}/thirdparty/icu/"
   "${LIB_ROOT_DIR}/thirdparty/openssl/"
   "${LIB_ROOT_DIR}/obj/vendor/${DEPENDENCY_TAG}/foundation/bundlemanager/zlib_override/"
+  "${LIB_ROOT_DIR}/hiviewdfx/faultloggerd"
 )
 set(CMAKE_SKIP_RPATH TRUE)
 link_directories(${LIB_DIRS})
@@ -124,6 +125,8 @@ target_link_libraries(jsvm
   libhilog.so
   libhisysevent.z.so
   c++_static
+  libdfx_signalhandler.z.so
+  libfaultloggerd.z.so
 )
 else()
 target_link_libraries(jsvm
@@ -141,6 +144,8 @@ target_link_libraries(jsvm
   libhilog.so
   libhisysevent.z.so
   c++_static
+  libdfx_signalhandler.z.so
+  libfaultloggerd.z.so
 )
 endif()
 endif()

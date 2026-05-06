@@ -33,6 +33,8 @@
 #include <sys/prctl.h>
 #include <unordered_set>
 
+extern "C" const char* DFX_GetAppRunningUniqueId(void);
+
 #define USE_C_API
 namespace platform {
 void OS::Abort()
@@ -329,6 +331,7 @@ void WriteOOMErrorToHisysevent(const char* location, const char* detail, bool is
 {
 #ifdef ENABLE_HISYSEVENT
     std::unique_ptr<char[]> name = ProcessBundleNameParam();
+    const char* id = DFX_GetAppRunningUniqueId();
     HiSysEventParam modeuleName = {
         .name = "MODEULE_NAME",
         .t = HISYSEVENT_STRING,
@@ -339,6 +342,12 @@ void WriteOOMErrorToHisysevent(const char* location, const char* detail, bool is
         .name = "PROCESS_NAME",
         .t = HISYSEVENT_STRING,
         .v = { .s = name.get() },
+        .arraySize = 0,
+    };
+    HiSysEventParam appRunningId = {
+        .name = "APP_RUNNING_ID",
+        .t = HISYSEVENT_STRING,
+        .v = { .s = const_cast<char*>(id) },
         .arraySize = 0,
     };
     HiSysEventParam locationParam = {
@@ -365,7 +374,7 @@ void WriteOOMErrorToHisysevent(const char* location, const char* detail, bool is
         .v = { .s = const_cast<char*>(heapStat != nullptr ? heapStat : "") },
         .arraySize = 0,
     };
-    HiSysEventParam params[] = { modeuleName, processName, locationParam,
+    HiSysEventParam params[] = { modeuleName, processName, appRunningId, locationParam,
         detailParam, heapOOMParam, heapStatParam };
     WriteHisysevent(params, sizeof(params) / sizeof(params[0]));
 #endif
