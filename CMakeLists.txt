@@ -72,6 +72,7 @@ set (platform_sources
 set (jsvm_dfx_sources
   "src/dfx/parse_jitcode.cpp"
   "src/dfx/jsvm_dfx_api.cpp"
+  "src/dfx/jsvm_hidump.cpp"
 )
 
 # 添加动态库搜索路径

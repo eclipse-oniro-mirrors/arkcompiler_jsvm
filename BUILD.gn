@@ -133,6 +133,7 @@ action("build_libjsvm") {
     "resource_schedule_service:ressched_client",
     "zlib:libz",
     "faultloggerd:dfx_signalhandler",
+    "faultloggerd:libfaultloggerd",
   ]
 
   deps = [
