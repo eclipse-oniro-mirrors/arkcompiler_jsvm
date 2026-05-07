@@ -18,6 +18,9 @@
 // v8 header
 #include "v8.h"
 
+// C++ standard header
+#include <mutex>
+
 // OHOS API header
 #include "hilog/log.h"
 #include "hitrace_meter.h"
@@ -265,7 +268,8 @@ std::unique_ptr<char[]> ProcessBundleNameParam()
 {
     int pid = getprocpid();
     static std::string bundleName;
-    if (bundleName == "") {
+    static std::once_flag flag;
+    std::call_once(flag, [&]() {
         std::string filePath = "/proc/" + std::to_string(pid) + "/cmdline";
         if (LoadStringFromFile(filePath, bundleName) && !bundleName.empty()) {
             auto pos = bundleName.find(":");
@@ -275,7 +279,7 @@ std::unique_ptr<char[]> ProcessBundleNameParam()
         } else {
             bundleName = "INVALID_BUNDLE_NAME";
         }
-    }
+    });
     std::unique_ptr<char[]> name = std::make_unique<char[]>(bundleName.size() + 1);
     errno_t ret = strcpy_s(name.get(), bundleName.size() + 1, bundleName.c_str());
     if (ret != EOK) {

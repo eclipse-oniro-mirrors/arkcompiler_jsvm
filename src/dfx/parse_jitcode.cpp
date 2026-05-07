@@ -63,8 +63,12 @@ static std::pair<uintptr_t, uintptr_t> FindVMAInProcMaps(uint32_t pid, const std
             std::string endAddrStr = line.substr(dashPos + 1, endPos);
             // convert address string to uint64_t
             constexpr int kNumberBase = 16;
-            res.first = static_cast<uintptr_t>(std::stoull(startAddrStr, nullptr, kNumberBase));
-            res.second = static_cast<uintptr_t>(std::stoull(endAddrStr, nullptr, kNumberBase));
+            try {
+                res.first = static_cast<uintptr_t>(std::stoull(startAddrStr, nullptr, kNumberBase));
+                res.second = static_cast<uintptr_t>(std::stoull(endAddrStr, nullptr, kNumberBase));
+            } catch (const std::exception&) {
+                continue;
+            }
             return res;
         }
     }
@@ -81,7 +85,7 @@ JitSymbolVMA::JitSymbolVMA(uint32_t pid) : isCurrentProcess(static_cast<uint32_t
         return;
     }
     memorySize = endMapAddress - startMapAddress;
-    if (memorySize < 0) {
+    if (endMapAddress <= startMapAddress) {
         return;
     }
     void* address = nullptr;
@@ -97,6 +101,7 @@ JitSymbolVMA::JitSymbolVMA(uint32_t pid) : isCurrentProcess(static_cast<uint32_t
 
         if (!ReadProcessMemory(pid, reinterpret_cast<uint64_t>(startMapAddress), address, memorySize)) {
             LOG(Error) << "failed read dfxAddress to local address.";
+            munmap(address, memorySize);
             return;
         }
         startAddress = reinterpret_cast<uintptr_t>(address);
@@ -208,7 +213,7 @@ JsSymbolExtractor::JsSymbolExtractor(uint32_t pid) : targetPid(pid)
     parser = std::make_unique<ELFParser>();
     if (!GetJitSymbols(codeID, memoryPointer, parser->jitSymbols)) {
         LOG(Error) << "GetJitSymbols error!";
-        parser.release();
+        parser.reset();
         return;
     }
 }
