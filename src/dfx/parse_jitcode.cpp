@@ -63,12 +63,8 @@ static std::pair<uintptr_t, uintptr_t> FindVMAInProcMaps(uint32_t pid, const std
             std::string endAddrStr = line.substr(dashPos + 1, endPos);
             // convert address string to uint64_t
             constexpr int kNumberBase = 16;
-            try {
-                res.first = static_cast<uintptr_t>(std::stoull(startAddrStr, nullptr, kNumberBase));
-                res.second = static_cast<uintptr_t>(std::stoull(endAddrStr, nullptr, kNumberBase));
-            } catch (const std::exception&) {
-                continue;
-            }
+            res.first = static_cast<uintptr_t>(std::stoull(startAddrStr, nullptr, kNumberBase));
+            res.second = static_cast<uintptr_t>(std::stoull(endAddrStr, nullptr, kNumberBase));
             return res;
         }
     }

@@ -1978,8 +1978,6 @@ JSVM_EXTERN JSVM_Status OH_JSVM_WaitForDebugger(JSVM_Env env, bool breakNextLine
 
 JSVM_EXTERN JSVM_Status OH_JSVM_PumpMessageLoop(JSVM_VM vm, bool* result)
 {
-    CHECK_ARG_WITHOUT_ENV(vm);
-    CHECK_ARG_WITHOUT_ENV(result);
     auto isolate = reinterpret_cast<v8::Isolate*>(vm);
     *result = v8::platform::PumpMessageLoop(v8impl::g_platform.get(), isolate);
     return JSVM_OK;
