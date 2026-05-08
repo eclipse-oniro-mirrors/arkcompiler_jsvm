@@ -84,10 +84,10 @@ JitSymbolVMA::JitSymbolVMA(uint32_t pid) : isCurrentProcess(static_cast<uint32_t
     if (startMapAddress == 0 || endMapAddress == 0) {
         return;
     }
-    memorySize = endMapAddress - startMapAddress;
     if (endMapAddress <= startMapAddress) {
         return;
     }
+    memorySize = endMapAddress - startMapAddress;
     void* address = nullptr;
     if (isCurrentProcess) {
         startAddress = startMapAddress;

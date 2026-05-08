@@ -18,9 +18,6 @@
 // v8 header
 #include "v8.h"
 
-// C++ standard header
-#include <mutex>
-
 // OHOS API header
 #include "hilog/log.h"
 #include "hitrace_meter.h"
@@ -35,6 +32,7 @@
 #include <string>
 #include <sys/prctl.h>
 #include <unordered_set>
+#include <mutex>
 
 extern "C" const char* DFX_GetAppRunningUniqueId(void);
 

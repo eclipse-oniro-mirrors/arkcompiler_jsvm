@@ -1915,9 +1915,6 @@ JSVM_EXTERN JSVM_Status OH_JSVM_StopCpuProfiler(JSVM_VM vm,
     auto v8profiler = reinterpret_cast<v8::CpuProfiler*>(profiler);
     v8::HandleScope scope(isolate);
     auto profile = v8profiler->StopProfiling(v8::String::Empty(isolate));
-    if (!profile) {
-        return JSVM_INVALID_ARG;
-    }
     v8impl::OutputStream os(stream, streamData);
     profile->Serialize(&os);
     return JSVM_OK;
@@ -1929,13 +1926,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_TakeHeapSnapshot(JSVM_VM vm, JSVM_OutputStream s
     CHECK_ARG_WITHOUT_ENV(stream);
     auto isolate = reinterpret_cast<v8::Isolate*>(vm);
     auto profiler = isolate->GetHeapProfiler();
-    if (!profiler) {
-        return JSVM_INVALID_ARG;
-    }
     auto snapshot = profiler->TakeHeapSnapshot();
-    if (!snapshot) {
-        return JSVM_INVALID_ARG;
-    }
     v8impl::OutputStream os(stream, streamData);
     snapshot->Serialize(&os);
     return JSVM_OK;
