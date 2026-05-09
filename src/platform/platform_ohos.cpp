@@ -251,7 +251,7 @@ bool LoadStringFromFile(const std::string& filePath, std::string& content)
 
     file.seekg(0, std::ios::end);
     const long fileLength = file.tellg();
-    if (fileLength > MAX_FILE_LENGTH) {
+    if (fileLength < 0 || static_cast<size_t>(fileLength) > MAX_FILE_LENGTH) {
         return false;
     }
 
