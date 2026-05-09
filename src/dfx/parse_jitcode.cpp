@@ -80,10 +80,10 @@ JitSymbolVMA::JitSymbolVMA(uint32_t pid) : isCurrentProcess(static_cast<uint32_t
     if (startMapAddress == 0 || endMapAddress == 0) {
         return;
     }
-    memorySize = endMapAddress - startMapAddress;
-    if (memorySize < 0) {
+    if (endMapAddress <= startMapAddress) {
         return;
     }
+    memorySize = endMapAddress - startMapAddress;
     void* address = nullptr;
     if (isCurrentProcess) {
         startAddress = startMapAddress;
@@ -97,6 +97,7 @@ JitSymbolVMA::JitSymbolVMA(uint32_t pid) : isCurrentProcess(static_cast<uint32_t
 
         if (!ReadProcessMemory(pid, reinterpret_cast<uint64_t>(startMapAddress), address, memorySize)) {
             LOG(Error) << "failed read dfxAddress to local address.";
+            munmap(address, memorySize);
             return;
         }
         startAddress = reinterpret_cast<uintptr_t>(address);
@@ -208,7 +209,7 @@ JsSymbolExtractor::JsSymbolExtractor(uint32_t pid) : targetPid(pid)
     parser = std::make_unique<ELFParser>();
     if (!GetJitSymbols(codeID, memoryPointer, parser->jitSymbols)) {
         LOG(Error) << "GetJitSymbols error!";
-        parser.release();
+        parser.reset();
         return;
     }
 }

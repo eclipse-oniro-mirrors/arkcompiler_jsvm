@@ -65,7 +65,7 @@ static bool DecodeName(const std::string& name,
     if (CharIsNumber(*it)) {
         int base = 1;
         do {
-            columnTemp += base * reinterpret_cast<int32_t>(*it - '0');
+            columnTemp += base * static_cast<int32_t>(*it - '0');
             base *= decimal;
             if (++it == url.rend()) {
                 return false;
@@ -74,7 +74,7 @@ static bool DecodeName(const std::string& name,
         if (*it == ':' && ++it != url.rend() && CharIsNumber(*it)) {
             base = 1;
             do {
-                lineTemp += base * reinterpret_cast<int32_t>(*it - '0');
+                lineTemp += base * static_cast<int32_t>(*it - '0');
                 base *= decimal;
                 if (++it == url.rend()) {
                     return false;
@@ -95,7 +95,7 @@ static bool DecodeName(const std::string& name,
 
 __attribute__((visibility("default"))) int step_jsvm(void* ctx, ReadMemFunc readMem, JsStepParam* frame)
 {
-    if (frame == nullptr || frame->fp == nullptr) {
+    if (frame == nullptr || frame->fp == nullptr || readMem == nullptr) {
         return -1; // Invaild input
     }
     uintptr_t preFp = 0;
@@ -131,7 +131,7 @@ __attribute__((visibility("default"))) int jsvm_parse_js_frame_info(uintptr_t pc
                                                                     uintptr_t jsvmExtractor,
                                                                     JsvmFunction* jsvmFunction)
 {
-    if (jsvmExtractor == 0) {
+    if (jsvmExtractor == 0 || jsvmFunction == nullptr) {
         return -1;
     }
     std::string codeName;

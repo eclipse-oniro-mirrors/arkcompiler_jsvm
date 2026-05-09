@@ -312,6 +312,9 @@ static WsDecodeResult DecodeFrameHybi17(const std::vector<char>& buffer,
         case K_OP_CODE_TEXT:
             break;
         case K_OP_CODE_PING: {
+            if (it + payloadLength64 > buffer.end()) {
+                return FRAME_INCOMPLETE;
+            }
             output->push_back(K_PONG_FRAME_HEADER);
             output->push_back(static_cast<char>(payloadLength64));
             output->insert(output->end(), it, it + payloadLength64);
@@ -356,7 +359,7 @@ static WsDecodeResult DecodeFrameHybi17(const std::vector<char>& buffer,
     }
     size_t payloadLength = static_cast<size_t>(payloadLength64);
 
-    if (buffer.size() - K_MASKING_KEY_WIDTH_IN_BYTES < payloadLength) {
+    if (buffer.size() < K_MASKING_KEY_WIDTH_IN_BYTES || buffer.size() - K_MASKING_KEY_WIDTH_IN_BYTES < payloadLength) {
         return FRAME_INCOMPLETE;
     }
 

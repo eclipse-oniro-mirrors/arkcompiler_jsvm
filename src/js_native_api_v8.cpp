@@ -1852,6 +1852,7 @@ JSVM_Status OH_JSVM_CreateSnapshot(JSVM_VM vm,
 
 JSVM_EXTERN JSVM_Status OH_JSVM_GetVMInfo(JSVM_VMInfo* result)
 {
+    CHECK_ARG_WITHOUT_ENV(result);
     result->apiVersion = 1;
     result->engine = "v8";
     result->version = V8_VERSION_STRING;
@@ -1907,6 +1908,8 @@ JSVM_EXTERN JSVM_Status OH_JSVM_StopCpuProfiler(JSVM_VM vm,
                                                 JSVM_OutputStream stream,
                                                 void* streamData)
 {
+    CHECK_ARG_WITHOUT_ENV(vm);
+    CHECK_ARG_WITHOUT_ENV(profiler);
     CHECK_ARG_WITHOUT_ENV(stream);
     auto isolate = reinterpret_cast<v8::Isolate*>(vm);
     auto v8profiler = reinterpret_cast<v8::CpuProfiler*>(profiler);
@@ -1919,6 +1922,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_StopCpuProfiler(JSVM_VM vm,
 
 JSVM_EXTERN JSVM_Status OH_JSVM_TakeHeapSnapshot(JSVM_VM vm, JSVM_OutputStream stream, void* streamData)
 {
+    CHECK_ARG_WITHOUT_ENV(vm);
     CHECK_ARG_WITHOUT_ENV(stream);
     auto isolate = reinterpret_cast<v8::Isolate*>(vm);
     auto profiler = isolate->GetHeapProfiler();
@@ -1981,6 +1985,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_PumpMessageLoop(JSVM_VM vm, bool* result)
 
 JSVM_EXTERN JSVM_Status OH_JSVM_PerformMicrotaskCheckpoint(JSVM_VM vm)
 {
+    CHECK_ARG_WITHOUT_ENV(vm);
     auto isolate = reinterpret_cast<v8::Isolate*>(vm);
     isolate->PerformMicrotaskCheckpoint();
     return JSVM_OK;
