@@ -21,8 +21,6 @@
 namespace v8impl {
 namespace {
 
-constexpr const char* SCOPE_LOG_PREFIX = "[JSVMScope] ";
-
 const char* ApiName(const char* apiName)
 {
     return apiName != nullptr ? apiName : "unknown";
@@ -30,52 +28,13 @@ const char* ApiName(const char* apiName)
 
 } // namespace
 
-uint64_t CurrentThreadId()
+uint32_t CurrentThreadId()
 {
-    thread_local uint64_t tid = platform::OS::GetTid();
+    thread_local uint32_t tid = static_cast<uint32_t>(platform::OS::GetTid());
     return tid;
 }
 
-void ReportScopeError(ScopeErrorKind kind, const char* apiName, uint64_t ownerTid, uint64_t currentTid)
-{
-    switch (kind) {
-        case ScopeErrorKind::CROSS_THREAD_ISOLATE_ENTER:
-            LOG(Error) << SCOPE_LOG_PREFIX << "Reject cross-thread isolate enter in " << ApiName(apiName)
-                       << ", owner tid=" << ownerTid << ", current tid=" << currentTid;
-            return;
-        case ScopeErrorKind::VM_SCOPE_OPEN_FAILED:
-            LOG(Error) << SCOPE_LOG_PREFIX << "Open VM scope failed in " << ApiName(apiName);
-            return;
-        case ScopeErrorKind::TLS_ISOLATE_NULL:
-            LOG(Error) << SCOPE_LOG_PREFIX << "TLS isolate is null in " << ApiName(apiName);
-            return;
-        case ScopeErrorKind::TLS_ISOLATE_MISMATCH:
-            LOG(Error) << SCOPE_LOG_PREFIX << "TLS isolate mismatch in " << ApiName(apiName);
-            return;
-        case ScopeErrorKind::RELEASE_WITHOUT_ACQUIRE:
-            LOG(Error) << SCOPE_LOG_PREFIX << "Release isolate owner without matching acquire in "
-                       << ApiName(apiName);
-            return;
-        case ScopeErrorKind::RELEASE_FROM_NON_OWNER_THREAD:
-            LOG(Error) << SCOPE_LOG_PREFIX << "Release isolate owner from non-owner thread in " << ApiName(apiName)
-                       << ", owner tid=" << ownerTid << ", current tid=" << currentTid;
-            return;
-        case ScopeErrorKind::VM_SCOPE_CLOSE_ON_DIFFERENT_THREAD:
-            LOG(Error) << SCOPE_LOG_PREFIX << "Close VM scope from a different thread in " << ApiName(apiName)
-                       << ", owner tid=" << ownerTid << ", current tid=" << currentTid;
-            return;
-        case ScopeErrorKind::VM_SCOPE_CLOSE_WITH_DIFFERENT_VM:
-            LOG(Error) << SCOPE_LOG_PREFIX << "Close VM scope with a different VM in " << ApiName(apiName);
-            return;
-        case ScopeErrorKind::ENV_SCOPE_CLOSE_ON_DIFFERENT_THREAD:
-            LOG(Error) << SCOPE_LOG_PREFIX << "Close env scope from a different thread in " << ApiName(apiName)
-                       << ", owner tid=" << ownerTid << ", current tid=" << currentTid;
-            return;
-    }
-    LOG(Error) << SCOPE_LOG_PREFIX << "Unknown scope error in " << ApiName(apiName);
-}
-
-bool IsolateOwner::TryAcquire(uint64_t currentTid, const char* apiName)
+bool IsolateOwner::TryAcquire(uint32_t currentTid, const char* apiName)
 {
     std::lock_guard<std::mutex> lock(mutex_);
 
@@ -93,17 +52,19 @@ bool IsolateOwner::TryAcquire(uint64_t currentTid, const char* apiName)
     return false;
 }
 
-bool IsolateOwner::TryRelease(uint64_t currentTid, const char* apiName)
+bool IsolateOwner::TryRelease(uint32_t currentTid, const char* apiName)
 {
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (UNLIKELY(enterDepth_ == 0)) {
-        ReportScopeError(ScopeErrorKind::RELEASE_WITHOUT_ACQUIRE, apiName);
+        LOG(Error) << "[JSVM Internal] Release isolate owner without matching acquire in "
+                   << ApiName(apiName);
         return false;
     }
 
     if (UNLIKELY(ownerTid_ != currentTid)) {
-        ReportScopeError(ScopeErrorKind::RELEASE_FROM_NON_OWNER_THREAD, apiName, ownerTid_, currentTid);
+        LOG(Error) << "[JSVM Internal] Release isolate owner from non-owner thread in "
+                   << ApiName(apiName) << ", owner tid=" << ownerTid_ << ", current tid=" << currentTid;
         return false;
     }
 

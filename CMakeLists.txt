@@ -87,6 +87,7 @@ set (jsvm_dfx_sources
   "src/dfx/parse_jitcode.cpp"
   "src/dfx/jsvm_dfx_api.cpp"
   "src/dfx/jsvm_hidump.cpp"
+  "src/dfx/jsvm_misuse_reporter.cpp"
 )
 
 # 添加动态库搜索路径
@@ -120,6 +121,7 @@ add_library(jsvm
 target_link_options(jsvm
   PRIVATE
   "-Wl,--exclude-libs=libc++_static.a"
+  "-Wl,--build-id=md5"
 )
 
 if (NOT DEPENDENCY_TAG STREQUAL "default")

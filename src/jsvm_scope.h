@@ -18,9 +18,9 @@
 
 #include <cstdint>
 #include <mutex>
-#include <new>
 
 #include "jsvm.h"
+#include "dfx/jsvm_misuse_reporter.h"
 #include "jsvm_util.h"
 
 namespace v8impl {
@@ -28,48 +28,13 @@ namespace v8impl {
 // Controls whether an IsolateScope must enter the isolate or can reuse the
 // already-current TLS isolate.
 enum class IsolateEnterMode {
-    ALWAYS,
-    IF_CURRENT_MISMATCH,
-};
-
-// Scope diagnostics are funneled through one entry point so the log prefix,
-// wording, or future event reporting can be changed in one place. The enum
-// identifies the failed invariant; the reporter decides how to format it.
-enum class ScopeErrorKind {
-    // A thread tried to enter an isolate while another thread owns it.
-    CROSS_THREAD_ISOLATE_ENTER,
-
-    // OH_JSVM_OpenVMScope failed to construct a usable IsolateScope wrapper.
-    VM_SCOPE_OPEN_FAILED,
-
-    // The API compatibility path found no current TLS isolate.
-    TLS_ISOLATE_NULL,
-
-    // The API compatibility path found a TLS isolate different from the target.
-    TLS_ISOLATE_MISMATCH,
-
-    // IsolateOwner::Release() was called without a matching successful acquire.
-    RELEASE_WITHOUT_ACQUIRE,
-
-    // IsolateOwner::Release() was called from a thread that does not own it.
-    RELEASE_FROM_NON_OWNER_THREAD,
-
-    // OH_JSVM_CloseVMScope is closing a wrapper created on another thread.
-    VM_SCOPE_CLOSE_ON_DIFFERENT_THREAD,
-
-    // OH_JSVM_CloseVMScope received a VM different from the one used to open.
-    VM_SCOPE_CLOSE_WITH_DIFFERENT_VM,
-
-    // OH_JSVM_CloseEnvScope is closing a wrapper created on another thread.
-    ENV_SCOPE_CLOSE_ON_DIFFERENT_THREAD,
+    ALWAYS_ENTER,      // Always enter the isolate
+    ENTER_IF_MISMATCH, // Enter the isolate only if the given isolate is mismatched with TLS isolate
 };
 
 // Returns the OS-visible thread id used in diagnostics. The implementation
 // caches the value per thread to avoid a syscall on hot scope paths.
-uint64_t CurrentThreadId();
-
-void ReportScopeError(ScopeErrorKind kind, const char* apiName = nullptr, uint64_t ownerTid = 0,
-                      uint64_t currentTid = 0);
+uint32_t CurrentThreadId();
 
 // Tracks the thread that owns JSVM-created v8::Isolate::Scope entries for a
 // single isolate. It is intentionally small: one owner tid plus a re-entrant
@@ -82,12 +47,12 @@ class IsolateOwner final {
 public:
     // Acquires ownership for the current thread. Re-entrant acquisition from the
     // same thread is allowed and increments enterDepth_.
-    bool TryAcquire(uint64_t currentTid, const char* apiName);
+    bool TryAcquire(uint32_t currentTid, const char* apiName);
 
     // Releases one ownership level. Only the owning thread may release it.
-    bool TryRelease(uint64_t currentTid, const char* apiName);
+    bool TryRelease(uint32_t currentTid, const char* apiName);
 
-    uint64_t GetTid() const {
+    uint32_t GetTid() const {
         return ownerTid_;
     }
 
@@ -104,7 +69,7 @@ private:
 
     // OS-visible tid of the thread that opened the outermost JSVM-created
     // Isolate::Scope. Zero means there is currently no owner.
-    uint64_t ownerTid_ = 0;
+    uint32_t ownerTid_ = 0;
 
     // Re-entrant ownership depth for ownerTid_. A zero depth means no owner.
     uint32_t enterDepth_ = 0;
@@ -115,13 +80,13 @@ IsolateOwner* GetIsolateOwner(v8::Isolate* isolate);
 struct VmScopePolicy final {
     // Explicit VM scopes must preserve V8 Enter/Exit nesting even when the TLS
     // isolate already matches the target isolate.
-    static constexpr IsolateEnterMode ENTER_MODE = IsolateEnterMode::ALWAYS;
+    static constexpr IsolateEnterMode enterMode = IsolateEnterMode::ALWAYS_ENTER;
 };
 
 struct ApiCompatPolicy final {
     // API compatibility scopes only repair a missing or mismatched TLS isolate.
     // If the target isolate is already current, the fast path does not enter.
-    static constexpr IsolateEnterMode ENTER_MODE = IsolateEnterMode::IF_CURRENT_MISMATCH;
+    static constexpr IsolateEnterMode enterMode = IsolateEnterMode::ENTER_IF_MISMATCH;
 };
 
 // Thin RAII wrapper around v8::Isolate::Scope with JSVM-side owner tracking.
@@ -150,12 +115,12 @@ public:
             return;
         }
 
-        uint64_t currentTid = scopeTid_;
+        uint32_t currentTid = scopeTid_;
         if (UNLIKELY(!owner_->TryAcquire(currentTid, apiName_))) {
             // Another thread owns this isolate in the JSVM tracker. Do not force
             // v8::Isolate::Enter here; doing so can turn a latent misuse into a
             // deterministic V8 CHECK failure.
-            ReportScopeError(ScopeErrorKind::CROSS_THREAD_ISOLATE_ENTER, apiName, owner_->GetTid(), currentTid);
+            ApiMisuseReporter::Report(ApiMisuseKind::E03_VM_SCOPE_CROSS_THREAD, apiName, owner_->GetTid(), currentTid);
             return;
         }
 
@@ -172,7 +137,7 @@ public:
             return;
         }
         ScopeStorage()->~Scope();
-        uint64_t currentTid = CurrentThreadId();
+        uint32_t currentTid = CurrentThreadId();
         owner_->TryRelease(currentTid, apiName_);
         entered_ = false;
     }
@@ -185,29 +150,16 @@ public:
         return entered_;
     }
 
-    // Checks whether an explicit close operation is running on the same thread
-    // that created this wrapper. The function only reports the mismatch; the
-    // caller keeps the public API behavior unchanged.
-    bool CheckOwnerThread(const char* apiName) const
+    // Get the tid at the moment the isolate scope is opened
+    uint32_t GetOpenTid() const
     {
-        uint64_t currentTid = CurrentThreadId();
-        if (LIKELY(scopeTid_ == currentTid)) {
-            return true;
-        }
-        ReportScopeError(ScopeErrorKind::VM_SCOPE_CLOSE_ON_DIFFERENT_THREAD, apiName, scopeTid_, currentTid);
-        return false;
+        return scopeTid_;
     }
 
-    // Checks whether an explicit close operation uses the same isolate pointer
-    // that was used to create this wrapper. The function does not alter control
-    // flow so compatibility behavior remains unchanged.
-    bool CheckMatches(v8::Isolate* isolate, const char* apiName) const
+    // Get the isolate at the moment the isolate scope is opened
+    v8::Isolate* GetOpenIsolate() const
     {
-        if (LIKELY(isolate_ == isolate)) {
-            return true;
-        }
-        ReportScopeError(ScopeErrorKind::VM_SCOPE_CLOSE_WITH_DIFFERENT_VM, apiName);
-        return false;
+        return isolate_;
     }
 
     bool IsTlsReady() const
@@ -220,11 +172,11 @@ private:
 
     bool ShouldEnter() const
     {
-        if constexpr (Policy::ENTER_MODE == IsolateEnterMode::ALWAYS) {
+        if constexpr (Policy::enterMode == IsolateEnterMode::ALWAYS_ENTER) {
             return true;
         }
 
-        if constexpr (Policy::ENTER_MODE == IsolateEnterMode::IF_CURRENT_MISMATCH) {
+        if constexpr (Policy::enterMode == IsolateEnterMode::ENTER_IF_MISMATCH) {
             return v8::Isolate::TryGetCurrent() != isolate_;
         }
 
@@ -249,7 +201,7 @@ private:
 
     // OS-visible tid that constructed this scope wrapper. Explicit close paths
     // use it to detect cross-thread scope lifecycle misuse.
-    uint64_t scopeTid_ = 0;
+    uint32_t scopeTid_ = 0;
 
     // True only when this object actually constructed v8::Isolate::Scope.
     bool entered_ = false;

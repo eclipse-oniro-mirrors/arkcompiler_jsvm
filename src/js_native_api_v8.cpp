@@ -1283,14 +1283,13 @@ JSVM_Status OH_JSVM_OpenVMScope(JSVM_VM vm, JSVM_VMScope* result)
     JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_SCOPE_LIFECYCLE);
     CHECK_ARG_WITHOUT_ENV(result);
     auto isolate = reinterpret_cast<v8::Isolate*>(vm);
-    jsvm::IsolateRegistry::GetInstance().RegisterIsolate(isolate);
     auto vmScope = new VMScope(isolate, __func__);
     if (UNLIKELY(!vmScope->Entered())) {
-        v8impl::ReportScopeError(v8impl::ScopeErrorKind::VM_SCOPE_OPEN_FAILED, __func__);
         delete vmScope;
         *result = nullptr;
         return JSVM_GENERIC_FAILURE;
     }
+    jsvm::IsolateRegistry::GetInstance().RegisterIsolate(isolate);
     *result = reinterpret_cast<JSVM_VMScope>(vmScope);
     JSVM_API_TRACE_STATE("opened", "vm", vm, "scope", *result);
     return JSVM_OK;
@@ -1300,13 +1299,21 @@ JSVM_Status OH_JSVM_CloseVMScope(JSVM_VM vm, JSVM_VMScope scope)
 {
     JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_SCOPE_LIFECYCLE);
     CHECK_ARG_WITHOUT_ENV(scope);
+    auto vmScope = reinterpret_cast<VMScope*>(scope);
+    uint32_t currentTid = v8impl::CurrentThreadId();
+    if (UNLIKELY(currentTid != vmScope->GetOpenTid())) {
+        // For compatibility reasons, no error is returned here. Future improvements will be considered.
+        v8impl::ApiMisuseReporter::Report(v8impl::ApiMisuseKind::E04_VM_SCOPE_CLOSE_CROSS_THREAD, __func__,
+                                          vmScope->GetOpenTid(), currentTid);
+    }
     auto isolate = reinterpret_cast<v8::Isolate*>(vm);
-    auto v8scope = reinterpret_cast<VMScope*>(scope);
-    (void)v8scope->CheckOwnerThread(__func__);
-    (void)v8scope->CheckMatches(isolate, __func__);
+    if (UNLIKELY(isolate != vmScope->GetOpenIsolate())) {
+        // For compatibility reasons, no error is returned here. Future improvements will be considered.
+        v8impl::ApiMisuseReporter::Report(v8impl::ApiMisuseKind::E05_VM_SCOPE_CLOSE_VM_MISMATCH, __func__);
+    }
     jsvm::IsolateRegistry::GetInstance().UnregisterIsolate();
     JSVM_API_TRACE_STATE("closed", "vm", vm, "scope", scope);
-    delete v8scope;
+    delete vmScope;
     return JSVM_OK;
 }
 
@@ -1318,12 +1325,12 @@ public:
 
     bool CheckOwnerThread(const char* apiName) const
     {
-        uint64_t currentTid = v8impl::CurrentThreadId();
+        uint32_t currentTid = v8impl::CurrentThreadId();
         if (LIKELY(ownerTid_ == currentTid)) {
             return true;
         }
-        v8impl::ReportScopeError(v8impl::ScopeErrorKind::ENV_SCOPE_CLOSE_ON_DIFFERENT_THREAD, apiName, ownerTid_,
-                                 currentTid);
+        v8impl::ApiMisuseReporter::Report(v8impl::ApiMisuseKind::E06_ENV_SCOPE_CLOSE_CROSS_THREAD, apiName,
+                                          ownerTid_, currentTid);
         return false;
     }
 
@@ -1331,7 +1338,7 @@ public:
     EnvScopeWrapper& operator=(const EnvScopeWrapper&) = delete;
 
 private:
-    uint64_t ownerTid_ = 0;
+    uint32_t ownerTid_ = 0;
     v8impl::ContextAccessScope contextAccess_;
 };
 
@@ -1444,6 +1451,7 @@ JSVM_Status OH_JSVM_CloseEnvScope(JSVM_Env env, JSVM_EnvScope scope)
     CHECK_ARG(env, scope);
 
     auto wrapper = reinterpret_cast<EnvScopeWrapper*>(scope);
+    // For compatibility reasons, no error is returned here. Future improvements will be considered.
     (void)wrapper->CheckOwnerThread(__func__);
     JSVM_API_TRACE_STATE("closed", "env", env, "scope", scope);
     delete wrapper;
@@ -1994,7 +2002,8 @@ JSVM_EXTERN JSVM_Status OH_JSVM_WaitForDebugger(JSVM_Env env, bool breakNextLine
 
 JSVM_EXTERN JSVM_Status OH_JSVM_PumpMessageLoop(JSVM_VM vm, bool* result)
 {
-    JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_V8_ISOLATE);
+    // XTS JsvmTest0730 to be fixed
+    JSVM_API_ENTER_GLOBAL(K_JSVM_ACCESS_V8_GLOBAL);
     auto isolate = reinterpret_cast<v8::Isolate*>(vm);
     *result = v8::platform::PumpMessageLoop(v8impl::g_platform.get(), isolate);
     return JSVM_OK;
@@ -6001,7 +6010,7 @@ JSVM_Status OH_JSVM_AddHandlerForGC(JSVM_VM vm,
                                     void* data)
 {
     JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_V8_ISOLATE);
-    if (!vm || !handler) {
+    if (!handler) {
         return JSVM_INVALID_ARG;
     }
     auto* isolate = reinterpret_cast<v8::Isolate*>(vm);
@@ -6031,7 +6040,7 @@ JSVM_Status OH_JSVM_RemoveHandlerForGC(JSVM_VM vm,
                                        void* userData)
 {
     JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_V8_ISOLATE);
-    if (!vm || !handler) {
+    if (!handler) {
         return JSVM_INVALID_ARG;
     }
     auto* isolate = reinterpret_cast<v8::Isolate*>(vm);
@@ -6076,9 +6085,6 @@ static void OnOOMError(const char* location, const v8::OOMDetails& details)
 JSVM_Status OH_JSVM_SetHandlerForOOMError(JSVM_VM vm, JSVM_HandlerForOOMError handler)
 {
     JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_V8_ISOLATE);
-    if (vm == nullptr) {
-        return JSVM_INVALID_ARG;
-    }
     auto* isolate = reinterpret_cast<v8::Isolate*>(vm);
     auto* pool = v8impl::GetOrCreateIsolateHandlerPool(isolate);
     pool->handlerForOOMError = handler;
@@ -6103,9 +6109,6 @@ static void OnFatalError(const char* location, const char* message)
 JSVM_Status OH_JSVM_SetHandlerForFatalError(JSVM_VM vm, JSVM_HandlerForFatalError handler)
 {
     JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_V8_ISOLATE);
-    if (vm == nullptr) {
-        return JSVM_INVALID_ARG;
-    }
     auto* isolate = reinterpret_cast<v8::Isolate*>(vm);
     auto* pool = v8impl::GetOrCreateIsolateHandlerPool(isolate);
     pool->handlerForFatalError = handler;
@@ -6166,9 +6169,6 @@ static void OnPromiseReject(v8::PromiseRejectMessage rejectMessage)
 JSVM_Status OH_JSVM_SetHandlerForPromiseReject(JSVM_VM vm, JSVM_HandlerForPromiseReject handler)
 {
     JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_V8_ISOLATE);
-    if (vm == nullptr) {
-        return JSVM_INVALID_ARG;
-    }
     auto* isolate = reinterpret_cast<v8::Isolate*>(vm);
     auto* pool = v8impl::GetOrCreateIsolateHandlerPool(isolate);
     pool->handlerForPromiseReject = handler;
@@ -6555,7 +6555,6 @@ static void OnGCWithHeapThreshold(v8::Isolate* isolate, v8::GCType type, v8::GCC
 JSVM_EXTERN JSVM_Status OH_JSVM_TakeRawHeapSnapshot(JSVM_VM vm, JSVM_OutputStream stream, void* streamData)
 {
     JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_V8_ISOLATE);
-    CHECK_ARG_WITHOUT_ENV(vm);
     CHECK_ARG_WITHOUT_ENV(stream);
     auto isolate = reinterpret_cast<v8::Isolate*>(vm);
     auto profiler = isolate->GetHeapProfiler();
@@ -6573,7 +6572,6 @@ JSVM_EXTERN JSVM_Status OH_JSVM_SetHeapThresholdCallback(JSVM_VM vm,
                                                          void* data)
 {
     JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_V8_ISOLATE);
-    CHECK_ARG_WITHOUT_ENV(vm);
     CHECK_ARG_WITHOUT_ENV(callback);
     if (threshold == 0) {
         return JSVM_INVALID_ARG;
@@ -6603,7 +6601,6 @@ JSVM_EXTERN JSVM_Status OH_JSVM_ClearHeapThresholdCallback(JSVM_VM vm,
                                                            void* data)
 {
     JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_V8_ISOLATE);
-    CHECK_ARG_WITHOUT_ENV(vm);
     CHECK_ARG_WITHOUT_ENV(callback);
 
     auto* isolate = reinterpret_cast<v8::Isolate*>(vm);

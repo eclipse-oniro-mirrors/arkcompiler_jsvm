@@ -303,7 +303,7 @@ void WriteHisysevent(HiSysEventParam* params, int size)
                         params, size);
 }
 
-void WriteAPIUseToHisysevent(const char *apiName)
+void WriteAPIUseToHisysevent(const char *apiName, uint32_t misuseKind)
 {
 #ifdef ENABLE_HISYSEVENT
     std::unique_ptr<char[]> name = ProcessBundleNameParam();
@@ -319,7 +319,13 @@ void WriteAPIUseToHisysevent(const char *apiName)
         .v = { .s = const_cast<char*>(apiName) },
         .arraySize = 0,
     };
-    HiSysEventParam params[] = { param, extraParam };
+    HiSysEventParam errnoParam = {
+        .name = "MISUSE_KIND",
+        .t = HISYSEVENT_UINT32,
+        .v = { .ui32 = misuseKind },
+        .arraySize = 0,
+    };
+    HiSysEventParam params[] = { param, extraParam, errnoParam };
     WriteHisysevent(params, sizeof(params) / sizeof(params[0]));
 #endif
 }

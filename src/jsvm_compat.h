@@ -21,26 +21,12 @@
 #include <new>
 
 #include "jsvm_env.h"
+#include "dfx/jsvm_misuse_reporter.h"
 #include "jsvm_scope.h"
 #include "jsvm_util.h"
 #include "v8.h"
 
 namespace v8impl {
-
-class CompatLogLimiter final {
-public:
-    static bool ShouldLog(const char* apiName)
-    {
-        static std::atomic<uint32_t> counters[BUCKET_COUNT] {};
-        uintptr_t key = reinterpret_cast<uintptr_t>(apiName);
-        uint32_t index = static_cast<uint32_t>((key >> POINTER_SHIFT) % BUCKET_COUNT);
-        return counters[index].fetch_add(1, std::memory_order_relaxed) == 0;
-    }
-
-private:
-    static constexpr uint32_t BUCKET_COUNT = 64;
-    static constexpr uint32_t POINTER_SHIFT = 4;
-};
 
 class IsolateAccessScope final {
 public:
@@ -98,11 +84,9 @@ private:
 
     static void ReportTlsIsolateMismatch(v8::Isolate* current, const char* apiName)
     {
-        if (UNLIKELY(CompatLogLimiter::ShouldLog(apiName))) {
-            ScopeErrorKind kind = current == nullptr ? ScopeErrorKind::TLS_ISOLATE_NULL
-                                                     : ScopeErrorKind::TLS_ISOLATE_MISMATCH;
-            ReportScopeError(kind, apiName);
-        }
+        ApiMisuseKind kind =
+            (current == nullptr ? ApiMisuseKind::E01_VM_SCOPE_ABSENT : ApiMisuseKind::E02_VM_SCOPE_MISMATCH);
+        ApiMisuseReporter::Report(kind, apiName);
     }
 
     bool guarded = false;  // GuardScope has been created

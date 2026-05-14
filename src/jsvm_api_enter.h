@@ -52,6 +52,23 @@ enum JsvmApiAccessKind {
     K_JSVM_ACCESS_JS_RUNTIME,         // full JS runtime preamble (replaces JSVM_PREAMBLE)
 };
 
+namespace v8impl {
+
+// Returns a pointer past the "OH_JSVM_" prefix in name, or name itself.
+// Used to shorten state-trace names so they don't collide with API-enter traces.
+constexpr const char* JsvmApiShortName(const char* name)
+{
+    constexpr const char kPrefix[] = "OH_JSVM_";
+    for (size_t i = 0; kPrefix[i] != '\0'; ++i) {
+        if (name[i] != kPrefix[i]) {
+            return name;
+        }
+    }
+    return name + (sizeof(kPrefix) - 1);
+}
+
+} // namespace v8impl
+
 // ============================================================================
 // Trace (no-op by default)
 // ============================================================================
@@ -61,9 +78,9 @@ enum JsvmApiAccessKind {
     platform::RunJsTrace JSVM_COMPAT_CONCAT(traceScope, __LINE__)((name), ##__VA_ARGS__)
 #define JSVM_API_TRACE_ENTER(apiName, ...) \
     JSVM_API_TRACE((apiName), ##__VA_ARGS__)
-#define JSVM_API_TRACE_STATE(phase, ...)                                       \
-    do {                                                                       \
-        JSVM_API_TRACE(__func__, "phase", (phase), ##__VA_ARGS__);             \
+#define JSVM_API_TRACE_STATE(phase, ...)                                                     \
+    do {                                                                                     \
+        JSVM_API_TRACE(v8impl::JsvmApiShortName(__func__), "phase", (phase), ##__VA_ARGS__); \
     } while (0)
 #else
 #define JSVM_API_TRACE(name, ...) static_cast<void>(0)
@@ -92,15 +109,11 @@ public:
 template<JsvmApiAccessKind Kind>
 struct JsvmApiEnterTraits {
     using TryCatchType = JsvmNoTryCatch;
-    static constexpr bool NEEDS_ENV = true;
-    static constexpr bool NEEDS_VM = false;
 };
 
 template<>
 struct JsvmApiEnterTraits<K_JSVM_ACCESS_JS_RUNTIME> {
     using TryCatchType = TryCatch;
-    static constexpr bool NEEDS_ENV = true;
-    static constexpr bool NEEDS_VM = false;
 };
 
 // ============================================================================
