@@ -21,6 +21,9 @@
 #include <fstream>
 #include <securec.h>
 #include <string>
+#include <sstream>
+#include <utility>
+#include <type_traits>
 
 #ifdef TARGET_OHOS
 #include "platform/platform_ohos.h"
@@ -67,9 +70,45 @@ public:
     explicit RunJsTrace(bool runJs);
     explicit RunJsTrace(const char* name);
 
+    template <typename... Args>
+    explicit RunJsTrace(const char* name, Args&&... args) : runJs(true) {
+        static_assert(sizeof...(args) % 2 == 0, "Arguments must be key-value pairs");
+        if constexpr (sizeof...(args) > 0) {
+            std::stringstream ss;
+            ss << name << " {";
+            FormatArgs(ss, std::forward<Args>(args)...);
+            ss << "}";
+            BeginTrace(ss.str().c_str());
+        } else {
+            BeginTrace(name);
+        }
+    }
+
     ~RunJsTrace();
 
 private:
+    void BeginTrace(const char* name);
+    void EndTrace();
+
+    template<typename K, typename V, typename... Rest>
+    void FormatArgs(std::stringstream& ss, K&& key, V&& value, Rest&&... rest) {
+        ss << key << ":";
+        if constexpr (std::is_pointer_v<std::remove_reference_t<V>>) {
+            if (value == nullptr) {
+                ss << "null";
+            } else {
+                ss << value;
+            }
+        } else {
+            ss << value;
+        }
+
+        if constexpr (sizeof...(rest) > 0) {
+            ss << ", ";
+            FormatArgs(ss, std::forward<Rest>(rest)...);
+        }
+    }
+
     bool runJs;
 };
 } // namespace platform

@@ -17,6 +17,7 @@
 #define SRC_JS_NATIVE_API_V8_H_
 
 #include "jsvm_env.h"
+#include "jsvm_compat.h"
 #include "jsvm_util.h"
 #include "type_conversion.h"
 
@@ -91,15 +92,6 @@ inline JSVM_Status SetLastError(JSVM_Env env,
 #define CHECK_MAYBE_NOTHING_WITH_PREAMBLE(env, maybe, status) \
     RETURN_STATUS_IF_FALSE_WITH_PREAMBLE((env), !((maybe).IsNothing()), (status))
 
-// JSVM_PREAMBLE is not wrapped in do..while: tryCatch must have function scope
-#define JSVM_PREAMBLE(env)                                                                               \
-    CHECK_ENV((env));                                                                                    \
-    RETURN_STATUS_IF_FALSE((env), (env)->lastException.IsEmpty(), JSVM_PENDING_EXCEPTION);               \
-    RETURN_STATUS_IF_FALSE((env), (env)->CanCallIntoJS(),                                                \
-                           ((env)->GetVersion() == JSVM_VERSION_EXPERIMENTAL ? JSVM_CANNOT_RUN_JS        \
-                                                                             : JSVM_PENDING_EXCEPTION)); \
-    ClearLastError((env));                                                                               \
-    v8impl::TryCatch tryCatch((env))
 
 #define CHECK_TO_TYPE(env, type, context, result, src, status)                    \
     do {                                                                          \
@@ -308,5 +300,7 @@ inline void CfgFinalizedCallback(JSVM_Env env, void* finalizeData, void* finaliz
 }
 
 } // end of namespace v8impl
+
+#include "jsvm_api_enter.h"
 
 #endif // SRC_JS_NATIVE_API_V8_H_

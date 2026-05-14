@@ -96,26 +96,36 @@ void OS::Print(LogLevel level, const char* format, ...)
 
 #define JSVM_HITRACE_TAG HITRACE_TAG_OHOS
 
+void RunJsTrace::BeginTrace(const char* name)
+{
+    StartTrace(JSVM_HITRACE_TAG, name);
+}
+
+void RunJsTrace::EndTrace()
+{
+    FinishTrace(JSVM_HITRACE_TAG);
+}
+
 RunJsTrace::RunJsTrace(bool runJs) : runJs(runJs)
 {
     if (runJs) {
-        StartTrace(JSVM_HITRACE_TAG, "PureJS");
+        BeginTrace("PureJS");
     } else {
-        FinishTrace(JSVM_HITRACE_TAG);
+        EndTrace();
     }
 }
 
 RunJsTrace::RunJsTrace(const char* name) : runJs(true)
 {
-    StartTrace(JSVM_HITRACE_TAG, name);
+    BeginTrace(name);
 }
 
 RunJsTrace::~RunJsTrace()
 {
     if (runJs) {
-        FinishTrace(JSVM_HITRACE_TAG);
+        EndTrace();
     } else {
-        StartTrace(JSVM_HITRACE_TAG, "PureJS");
+        BeginTrace("PureJS");
     }
 }
 
