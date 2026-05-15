@@ -96,26 +96,36 @@ void OS::Print(LogLevel level, const char* format, ...)
 
 #define JSVM_HITRACE_TAG HITRACE_TAG_OHOS
 
+void RunJsTrace::BeginTrace(const char* name)
+{
+    StartTrace(JSVM_HITRACE_TAG, name);
+}
+
+void RunJsTrace::EndTrace()
+{
+    FinishTrace(JSVM_HITRACE_TAG);
+}
+
 RunJsTrace::RunJsTrace(bool runJs) : runJs(runJs)
 {
     if (runJs) {
-        StartTrace(JSVM_HITRACE_TAG, "PureJS");
+        BeginTrace("PureJS");
     } else {
-        FinishTrace(JSVM_HITRACE_TAG);
+        EndTrace();
     }
 }
 
 RunJsTrace::RunJsTrace(const char* name) : runJs(true)
 {
-    StartTrace(JSVM_HITRACE_TAG, name);
+    BeginTrace(name);
 }
 
 RunJsTrace::~RunJsTrace()
 {
     if (runJs) {
-        FinishTrace(JSVM_HITRACE_TAG);
+        EndTrace();
     } else {
-        StartTrace(JSVM_HITRACE_TAG, "PureJS");
+        BeginTrace("PureJS");
     }
 }
 
@@ -293,7 +303,7 @@ void WriteHisysevent(HiSysEventParam* params, int size)
                         params, size);
 }
 
-void WriteAPIUseToHisysevent(const char *apiName)
+void WriteAPIUseToHisysevent(const char *apiName, uint32_t misuseKind)
 {
 #ifdef ENABLE_HISYSEVENT
     std::unique_ptr<char[]> name = ProcessBundleNameParam();
@@ -309,7 +319,13 @@ void WriteAPIUseToHisysevent(const char *apiName)
         .v = { .s = const_cast<char*>(apiName) },
         .arraySize = 0,
     };
-    HiSysEventParam params[] = { param, extraParam };
+    HiSysEventParam errnoParam = {
+        .name = "MISUSE_KIND",
+        .t = HISYSEVENT_UINT32,
+        .v = { .ui32 = misuseKind },
+        .arraySize = 0,
+    };
+    HiSysEventParam params[] = { param, extraParam, errnoParam };
     WriteHisysevent(params, sizeof(params) / sizeof(params[0]));
 #endif
 }

@@ -30,12 +30,25 @@ if ((DEFINED TARGET_CPU) AND (${TARGET_CPU} MATCHES "arm"))
   )
 endif()
 
+if (NOT DEFINED JSVM_ENABLE_API_ACCESS_SCOPE)
+  set(JSVM_ENABLE_API_ACCESS_SCOPE 1)
+endif()
+if (NOT DEFINED JSVM_ENABLE_API_TRACE)
+  set(JSVM_ENABLE_API_TRACE 0)
+endif()
+if (NOT DEFINED JSVM_ENABLE_API_ACCESS_AUDIT)
+  set(JSVM_ENABLE_API_ACCESS_AUDIT 0)
+endif()
+
 # 设置宏定义
 add_compile_definitions(
   -DENABLE_INSPECTOR
   -DHAVE_OPENSSL=1
   -DTARGET_OHOS
   # -DENABLE_HISYSEVENT
+  -DJSVM_ENABLE_API_ACCESS_SCOPE=${JSVM_ENABLE_API_ACCESS_SCOPE}
+  -DJSVM_ENABLE_API_TRACE=${JSVM_ENABLE_API_TRACE}
+  -DJSVM_ENABLE_API_ACCESS_AUDIT=${JSVM_ENABLE_API_ACCESS_AUDIT}
 )
 
 # 添加头文件
@@ -56,6 +69,7 @@ set (jsvm_sources
   "src/js_native_api_v8.cpp"
   "src/jsvm_env.cpp"
   "src/jsvm_reference.cpp"
+  "src/jsvm_scope.cpp"
 )
 
 set (jsvm_inspector_sources
@@ -73,6 +87,7 @@ set (jsvm_dfx_sources
   "src/dfx/parse_jitcode.cpp"
   "src/dfx/jsvm_dfx_api.cpp"
   "src/dfx/jsvm_hidump.cpp"
+  "src/dfx/jsvm_misuse_reporter.cpp"
 )
 
 # 添加动态库搜索路径
@@ -106,6 +121,7 @@ add_library(jsvm
 target_link_options(jsvm
   PRIVATE
   "-Wl,--exclude-libs=libc++_static.a"
+  "-Wl,--build-id=md5"
 )
 
 if (NOT DEPENDENCY_TAG STREQUAL "default")

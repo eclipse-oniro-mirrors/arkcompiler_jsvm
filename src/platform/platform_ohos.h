@@ -40,7 +40,7 @@ void WriteJSVMInitToHisysevent();
 
 void WriteOOMErrorToHisysevent(const char* location, const char* detail, bool isHeapOOM, const char* heapStat);
 
-void WriteAPIUseToHisysevent(const char *apiName);
+void WriteAPIUseToHisysevent(const char *apiName, uint32_t misuseKind = 0);
 
 bool InJitMode();
 } // namespace ohos

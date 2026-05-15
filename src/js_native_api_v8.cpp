@@ -31,9 +31,11 @@
 #define JSVM_EXPERIMENTAL
 #include "js_native_api_v8.h"
 #include "jsvm.h"
+#include "jsvm_compat.h"
 #include "jsvm_env.h"
 #include "jsvm_log.h"
 #include "jsvm_reference-inl.h"
+#include "jsvm_scope.h"
 #include "jsvm_task.h"
 #include "jsvm_util.h"
 #include "libplatform/libplatform.h"
@@ -164,12 +166,14 @@ struct IsolateData {
     v8::StartupData* blob;
     v8::Eternal<v8::Private> typeTagKey;
     v8::Eternal<v8::Private> wrapperKey;
+    IsolateOwner isolateOwner;
 };
 
 static void CreateIsolateData(v8::Isolate* isolate, v8::StartupData* blob)
 {
     auto data = new IsolateData(blob);
-    v8::Isolate::Scope isolateScope(isolate);
+    isolate->SetData(v8impl::K_ISOLATE_DATA, data);
+    v8impl::IsolateScope<v8impl::VmScopePolicy> isolateScope(isolate, __func__);
     v8::HandleScope handleScope(isolate);
     if (blob) {
         // NOTE: The order of getting the data must be consistent with the order of
@@ -182,7 +186,6 @@ static void CreateIsolateData(v8::Isolate* isolate, v8::StartupData* blob)
         data->wrapperKey.Set(isolate, v8::Private::New(isolate));
         data->typeTagKey.Set(isolate, v8::Private::New(isolate));
     }
-    isolate->SetData(v8impl::K_ISOLATE_DATA, data);
 }
 
 static IsolateData* GetIsolateData(v8::Isolate* isolate)
@@ -445,7 +448,6 @@ enum UnwrapAction { KEEP_WRAP, REMOVE_WRAP };
 
 JSVM_Status Unwrap(JSVM_Env env, JSVM_Value jsObject, void** result, UnwrapAction action)
 {
-    JSVM_PREAMBLE(env);
     CHECK_ARG(env, jsObject);
     if (action == KEEP_WRAP) {
         CHECK_ARG(env, result);
@@ -481,7 +483,7 @@ JSVM_Status Unwrap(JSVM_Env env, JSVM_Value jsObject, void** result, UnwrapActio
         v8impl::RuntimeReference::DeleteReference(reference);
     }
 
-    return GET_RETURN_STATUS(env);
+    return JSVM_OK;
 }
 
 //=== Function JSVM_Callback wrapper =================================
@@ -1097,7 +1099,6 @@ void PropertyCallbackWrapper<T>::SetReturnValue(JSVM_Value value)
 JSVM_Status Wrap(JSVM_Env env, JSVM_Value jsObject, void *nativeObject, JSVM_Finalize finalizeCb, void *finalizeHint,
     JSVM_Ref *result)
 {
-    JSVM_PREAMBLE(env);
     CHECK_ARG(env, jsObject);
 
     v8::Local<v8::Context> context = env->context();
@@ -1128,10 +1129,19 @@ JSVM_Status Wrap(JSVM_Env env, JSVM_Value jsObject, void *nativeObject, JSVM_Fin
         CHECK(obj->SetPrivate(context, JSVM_PRIVATE_KEY(env->isolate, wrapper), external).FromJust());
     }
 
-    return GET_RETURN_STATUS(env);
+    return JSVM_OK;
 }
 
 } // end of anonymous namespace
+
+IsolateOwner* GetIsolateOwner(v8::Isolate* isolate)
+{
+    if (isolate == nullptr) {
+        return nullptr;
+    }
+    auto data = GetIsolateData(isolate);
+    return data != nullptr ? &data->isolateOwner : nullptr;
+}
 
 } // end of namespace v8impl
 
@@ -1142,6 +1152,7 @@ v8::Platform* JSVM_Env__::platform()
 
 JSVM_Status OH_JSVM_Init(const JSVM_InitOptions* options)
 {
+    JSVM_API_ENTER_GLOBAL(K_JSVM_ACCESS_V8_GLOBAL);
     static std::once_flag init;
     bool callInit = false;
     std::call_once(init, [&callInit, options]() {
@@ -1181,6 +1192,7 @@ JSVM_Status OH_JSVM_Init(const JSVM_InitOptions* options)
 
 JSVM_Status OH_JSVM_GetVM(JSVM_Env env, JSVM_VM* result)
 {
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_NO_V8);
     *result = reinterpret_cast<JSVM_VM>(env->isolate);
     return JSVM_OK;
 }
@@ -1194,6 +1206,7 @@ static void OnJSVMOOMError(v8::Isolate* isolate, const char* location,
 
 JSVM_Status OH_JSVM_CreateVM(const JSVM_CreateVMOptions* options, JSVM_VM* result)
 {
+    JSVM_API_ENTER_GLOBAL(K_JSVM_ACCESS_V8_GLOBAL);
     OHOS_CALL(platform::ohos::ReportKeyThread(platform::ohos::ThreadRole::USER_INTERACT));
 
     v8::Isolate::CreateParams createParams;
@@ -1225,6 +1238,7 @@ JSVM_Status OH_JSVM_CreateVM(const JSVM_CreateVMOptions* options, JSVM_VM* resul
     }
     v8impl::CreateIsolateData(isolate, snapshotBlob);
     *result = reinterpret_cast<JSVM_VM>(isolate);
+    JSVM_API_TRACE_STATE("created", "vm", *result);
     // Create nullptr placeholder
     isolate->SetData(v8impl::K_ISOLATE_HANDLER_POOL_SLOT, nullptr);
     isolate->SetOOMErrorHandlerWithIsolate(OnJSVMOOMError);
@@ -1236,9 +1250,8 @@ static void OnGCWithHeapThreshold(v8::Isolate* isolate, v8::GCType type, v8::GCC
 
 JSVM_Status OH_JSVM_DestroyVM(JSVM_VM vm)
 {
-    if (!vm) {
-        return JSVM_INVALID_ARG;
-    }
+    JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_SCOPE_LIFECYCLE);
+    JSVM_API_TRACE_STATE("destroy", "vm", vm);
     auto isolate = reinterpret_cast<v8::Isolate*>(vm);
     auto creator = v8impl::GetIsolateSnapshotCreator(isolate);
     auto data = v8impl::GetIsolateData(isolate);
@@ -1263,75 +1276,70 @@ JSVM_Status OH_JSVM_DestroyVM(JSVM_VM vm)
     return JSVM_OK;
 }
 
+using VMScope = v8impl::IsolateScope<v8impl::VmScopePolicy>;
+
 JSVM_Status OH_JSVM_OpenVMScope(JSVM_VM vm, JSVM_VMScope* result)
 {
+    JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_SCOPE_LIFECYCLE);
+    CHECK_ARG_WITHOUT_ENV(result);
     auto isolate = reinterpret_cast<v8::Isolate*>(vm);
+    auto vmScope = new VMScope(isolate, __func__);
+    if (UNLIKELY(!vmScope->Entered())) {
+        delete vmScope;
+        *result = nullptr;
+        return JSVM_GENERIC_FAILURE;
+    }
     jsvm::IsolateRegistry::GetInstance().RegisterIsolate(isolate);
-    auto scope = new v8::Isolate::Scope(isolate);
-    *result = reinterpret_cast<JSVM_VMScope>(scope);
+    *result = reinterpret_cast<JSVM_VMScope>(vmScope);
+    JSVM_API_TRACE_STATE("opened", "vm", vm, "scope", *result);
     return JSVM_OK;
 }
 
 JSVM_Status OH_JSVM_CloseVMScope(JSVM_VM vm, JSVM_VMScope scope)
 {
-    auto v8scope = reinterpret_cast<v8::Isolate::Scope*>(scope);
+    JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_SCOPE_LIFECYCLE);
+    CHECK_ARG_WITHOUT_ENV(scope);
+    auto vmScope = reinterpret_cast<VMScope*>(scope);
+    uint32_t currentTid = v8impl::CurrentThreadId();
+    if (UNLIKELY(currentTid != vmScope->GetOpenTid())) {
+        // For compatibility reasons, no error is returned here. Future improvements will be considered.
+        v8impl::ApiMisuseReporter::Report(v8impl::ApiMisuseKind::E04_VM_SCOPE_CLOSE_CROSS_THREAD, __func__,
+                                          vmScope->GetOpenTid(), currentTid);
+    }
+    auto isolate = reinterpret_cast<v8::Isolate*>(vm);
+    if (UNLIKELY(isolate != vmScope->GetOpenIsolate())) {
+        // For compatibility reasons, no error is returned here. Future improvements will be considered.
+        v8impl::ApiMisuseReporter::Report(v8impl::ApiMisuseKind::E05_VM_SCOPE_CLOSE_VM_MISMATCH, __func__);
+    }
     jsvm::IsolateRegistry::GetInstance().UnregisterIsolate();
-    delete v8scope;
+    JSVM_API_TRACE_STATE("closed", "vm", vm, "scope", scope);
+    delete vmScope;
     return JSVM_OK;
 }
 
-// RAII helper: ensures v8::Isolate TLS is set when needed.
-// Without VMScope (Isolate::Enter), V8 14.4's internal APIs use Isolate::Current()
-// (TLS) which returns nullptr, causing crashes. This guard transparently enters
-// the isolate if TLS is not set, and exits on destruction.
-class IsolateGuard {
-public:
-    explicit IsolateGuard(v8::Isolate* expectedIsolate) : expectedIsolate_(expectedIsolate), entered_(false)
-    {
-        v8::Isolate* current = v8::Isolate::TryGetCurrent();
-        if (current != expectedIsolate) {
-            if (current == nullptr) {
-                LOG(Error) << "[IsolateGuard] TLS Isolate is null. Caller should open JSVM_VMScope first.";
-            } else {
-                LOG(Error) << "[IsolateGuard] TLS Isolate mismatch.";
-            }
-            expectedIsolate->Enter();
-            entered_ = true;
-        }
-    }
-    ~IsolateGuard()
-    {
-        if (entered_) {
-            v8::Isolate* current = v8::Isolate::TryGetCurrent();
-            if (current != expectedIsolate_) {
-                LOG(Error) << "[IsolateGuard] TLS Isolate changed during scope.";
-            }
-            expectedIsolate_->Exit();
-        }
-    }
-    IsolateGuard(const IsolateGuard&) = delete;
-    IsolateGuard& operator=(const IsolateGuard&) = delete;
-
-private:
-    v8::Isolate* expectedIsolate_ = nullptr;
-    bool entered_ = false;
-};
-
-// EnvScopeWrapper combines IsolateGuard + Context::Scope.
-// Construction order: IsolateGuard (Enter) → Context::Scope (Context::Enter)
-// Destruction order: ~Context::Scope (Context::Exit) → ~IsolateGuard (Exit)
 class EnvScopeWrapper {
 public:
-    EnvScopeWrapper(v8::Isolate* expectedIsolate, v8::Local<v8::Context> ctx)
-        : guard_(expectedIsolate), contextScope_(ctx)
+    explicit EnvScopeWrapper(JSVM_Env env, const char* apiName)
+        : ownerTid_(v8impl::CurrentThreadId()), contextAccess_(env, apiName)
     {}
+
+    bool CheckOwnerThread(const char* apiName) const
+    {
+        uint32_t currentTid = v8impl::CurrentThreadId();
+        if (LIKELY(ownerTid_ == currentTid)) {
+            return true;
+        }
+        v8impl::ApiMisuseReporter::Report(v8impl::ApiMisuseKind::E06_ENV_SCOPE_CLOSE_CROSS_THREAD, apiName,
+                                          ownerTid_, currentTid);
+        return false;
+    }
 
     EnvScopeWrapper(const EnvScopeWrapper&) = delete;
     EnvScopeWrapper& operator=(const EnvScopeWrapper&) = delete;
 
 private:
-    IsolateGuard guard_;
-    v8::Context::Scope contextScope_;
+    uint32_t ownerTid_ = 0;
+    v8impl::ContextAccessScope contextAccess_;
 };
 
 JSVM_Status OH_JSVM_CreateEnv(JSVM_VM vm,
@@ -1339,10 +1347,8 @@ JSVM_Status OH_JSVM_CreateEnv(JSVM_VM vm,
                               const JSVM_PropertyDescriptor* properties,
                               JSVM_Env* result)
 {
+    JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_V8_ISOLATE);
     auto isolate = reinterpret_cast<v8::Isolate*>(vm);
-#if JSVM_V8_NEW_VERSION
-    IsolateGuard isolateGuard(isolate);
-#endif
     auto env = new JSVM_Env__(isolate, JSVM_API_VERSION);
     v8::HandleScope handleScope(isolate);
     auto globalTemplate = v8::ObjectTemplate::New(isolate);
@@ -1386,6 +1392,7 @@ JSVM_Status OH_JSVM_CreateEnv(JSVM_VM vm,
     env->contextPersistent.Reset(isolate, context);
     v8impl::SetContextEnv(context, env);
     *result = env;
+    JSVM_API_TRACE_STATE("created", "vm", vm, "env", env);
     if (UNLIKELY(env->debugFlags)) {
         if (UNLIKELY(env->debugFlags & (1 << JSVM_SCOPE_CHECK))) {
             env->CreateScopeTracker();
@@ -1398,6 +1405,7 @@ JSVM_Status OH_JSVM_CreateEnv(JSVM_VM vm,
 
 JSVM_EXTERN JSVM_Status OH_JSVM_CreateEnvFromSnapshot(JSVM_VM vm, size_t index, JSVM_Env* result)
 {
+    JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_V8_ISOLATE);
     auto isolate = reinterpret_cast<v8::Isolate*>(vm);
     v8::HandleScope handleScope(isolate);
 
@@ -1412,15 +1420,15 @@ JSVM_EXTERN JSVM_Status OH_JSVM_CreateEnvFromSnapshot(JSVM_VM vm, size_t index, 
     env->contextPersistent.Reset(isolate, context);
     v8impl::SetContextEnv(context, env);
     *result = env;
+    JSVM_API_TRACE_STATE("created", "vm", vm, "env", env, "snapshotIndex", index);
 
     return JSVM_OK;
 }
 
 JSVM_Status OH_JSVM_DestroyEnv(JSVM_Env env)
 {
-#if JSVM_V8_NEW_VERSION
-    IsolateGuard isolateGuard(env->isolate);
-#endif
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
+    JSVM_API_TRACE_STATE("destroy", "env", env, "vm", reinterpret_cast<JSVM_VM>(env->isolate));
     env->DeleteMe();
     LOG(Info) << "JSVM Env has been destroyed";
     return JSVM_OK;
@@ -1428,15 +1436,25 @@ JSVM_Status OH_JSVM_DestroyEnv(JSVM_Env env)
 
 JSVM_Status OH_JSVM_OpenEnvScope(JSVM_Env env, JSVM_EnvScope* result)
 {
-    auto *wrapper = env->scopeMemoryManager.New<EnvScopeWrapper>(env->isolate, env->context());
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_SCOPE_LIFECYCLE);
+    CHECK_ARG(env, result);
+
+    auto *wrapper = new EnvScopeWrapper(env, __func__);
     *result = reinterpret_cast<JSVM_EnvScope>(wrapper);
+    JSVM_API_TRACE_STATE("opened", "env", env, "scope", *result);
     return ClearLastError(env);
 }
 
 JSVM_Status OH_JSVM_CloseEnvScope(JSVM_Env env, JSVM_EnvScope scope)
 {
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_SCOPE_LIFECYCLE);
+    CHECK_ARG(env, scope);
+
     auto wrapper = reinterpret_cast<EnvScopeWrapper*>(scope);
-    env->scopeMemoryManager.Delete(wrapper);
+    // For compatibility reasons, no error is returned here. Future improvements will be considered.
+    (void)wrapper->CheckOwnerThread(__func__);
+    JSVM_API_TRACE_STATE("closed", "env", env, "scope", scope);
+    delete wrapper;
     return ClearLastError(env);
 }
 
@@ -1448,7 +1466,7 @@ JSVM_Status OH_JSVM_CompileScript(JSVM_Env env,
                                   bool* cacheRejected,
                                   JSVM_Script* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, script);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, script);
@@ -1481,6 +1499,7 @@ JSVM_Status OH_JSVM_CompileScript(JSVM_Env env,
 JSVM_Status OH_JSVM_BackgroundDeserialize(
     JSVM_VM vm, JSVM_CodeCache cacheData, JSVM_DeserializeResult *result)
 {
+    JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_V8_ISOLATE);
     RETURN_STATUS_IF_FALSE_WITHOUT_ENV(result != nullptr, JSVM_INVALID_ARG);
     if (UNLIKELY(!(cacheData.cache != nullptr && cacheData.length != 0))) {
         *result = nullptr;
@@ -1500,6 +1519,7 @@ JSVM_Status OH_JSVM_BackgroundDeserialize(
 
 JSVM_Status OH_JSVM_ReleaseDeserializeResult(JSVM_DeserializeResult result)
 {
+    JSVM_API_ENTER_GLOBAL(K_JSVM_ACCESS_NO_V8);
     RETURN_STATUS_IF_FALSE_WITHOUT_ENV(result != nullptr, JSVM_INVALID_ARG);
     result->result.reset();
     delete result;
@@ -1569,7 +1589,7 @@ JSVM_Status OH_JSVM_CompileScriptWithOrigin(JSVM_Env env,
                                             JSVM_ScriptOrigin* origin,
                                             JSVM_Script* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, script);
     CHECK_ARG(env, result);
     CHECK_NOT_NULL(origin->resourceName);
@@ -1716,7 +1736,7 @@ JSVM_Status OH_JSVM_CompileScriptWithOptions(JSVM_Env env,
                                              JSVM_CompileOptions options[],
                                              JSVM_Script* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, script);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, script);
@@ -1748,7 +1768,7 @@ JSVM_Status OH_JSVM_CompileScriptWithOptions(JSVM_Env env,
 
 JSVM_Status OH_JSVM_CreateCodeCache(JSVM_Env env, JSVM_Script script, const uint8_t** data, size_t* length)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, script);
     CHECK_ARG(env, data);
     CHECK_ARG(env, length);
@@ -1770,7 +1790,7 @@ JSVM_Status OH_JSVM_CreateCodeCache(JSVM_Env env, JSVM_Script script, const uint
 
 JSVM_Status OH_JSVM_RunScript(JSVM_Env env, JSVM_Script script, JSVM_Value* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, script);
     CHECK_ARG(env, result);
 
@@ -1786,7 +1806,7 @@ JSVM_Status OH_JSVM_RunScript(JSVM_Env env, JSVM_Script script, JSVM_Value* resu
 
 JSVM_Status OH_JSVM_JsonParse(JSVM_Env env, JSVM_Value json_string, JSVM_Value* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, json_string);
     CHECK_SCOPE(env, json_string);
 
@@ -1803,7 +1823,7 @@ JSVM_Status OH_JSVM_JsonParse(JSVM_Env env, JSVM_Value json_string, JSVM_Value* 
 
 JSVM_Status OH_JSVM_JsonStringify(JSVM_Env env, JSVM_Value json_object, JSVM_Value* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, json_object);
     CHECK_SCOPE(env, json_object);
 
@@ -1823,6 +1843,7 @@ JSVM_Status OH_JSVM_CreateSnapshot(JSVM_VM vm,
                                    const char** blobData,
                                    size_t* blobSize)
 {
+    JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_V8_ISOLATE);
     auto isolate = reinterpret_cast<v8::Isolate*>(vm);
     auto creator = v8impl::GetIsolateSnapshotCreator(isolate);
     if (creator == nullptr) {
@@ -1852,6 +1873,7 @@ JSVM_Status OH_JSVM_CreateSnapshot(JSVM_VM vm,
 
 JSVM_EXTERN JSVM_Status OH_JSVM_GetVMInfo(JSVM_VMInfo* result)
 {
+    JSVM_API_ENTER_GLOBAL(K_JSVM_ACCESS_V8_GLOBAL);
     CHECK_ARG_WITHOUT_ENV(result);
     result->apiVersion = 1;
     result->engine = "v8";
@@ -1862,7 +1884,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_GetVMInfo(JSVM_VMInfo* result)
 
 JSVM_EXTERN JSVM_Status OH_JSVM_MemoryPressureNotification(JSVM_Env env, JSVM_MemoryPressureLevel level)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     if (level == JSVM_MEMORY_PRESSURE_LEVEL_LOW_MEMORY) {
         env->isolate->LowMemoryNotification();
         return ClearLastError(env);
@@ -1873,6 +1895,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_MemoryPressureNotification(JSVM_Env env, JSVM_Me
 
 JSVM_EXTERN JSVM_Status OH_JSVM_GetHeapStatistics(JSVM_VM vm, JSVM_HeapStatistics* result)
 {
+    JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_V8_ISOLATE);
     auto isolate = reinterpret_cast<v8::Isolate*>(vm);
     v8::HeapStatistics stats;
     isolate->GetHeapStatistics(&stats);
@@ -1894,6 +1917,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_GetHeapStatistics(JSVM_VM vm, JSVM_HeapStatistic
 
 JSVM_EXTERN JSVM_Status OH_JSVM_StartCpuProfiler(JSVM_VM vm, JSVM_CpuProfiler* result)
 {
+    JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_V8_ISOLATE);
     auto isolate = reinterpret_cast<v8::Isolate*>(vm);
     auto profiler = v8::CpuProfiler::New(isolate);
     v8::HandleScope scope(isolate);
@@ -1908,7 +1932,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_StopCpuProfiler(JSVM_VM vm,
                                                 JSVM_OutputStream stream,
                                                 void* streamData)
 {
-    CHECK_ARG_WITHOUT_ENV(vm);
+    JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG_WITHOUT_ENV(profiler);
     CHECK_ARG_WITHOUT_ENV(stream);
     auto isolate = reinterpret_cast<v8::Isolate*>(vm);
@@ -1922,7 +1946,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_StopCpuProfiler(JSVM_VM vm,
 
 JSVM_EXTERN JSVM_Status OH_JSVM_TakeHeapSnapshot(JSVM_VM vm, JSVM_OutputStream stream, void* streamData)
 {
-    CHECK_ARG_WITHOUT_ENV(vm);
+    JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG_WITHOUT_ENV(stream);
     auto isolate = reinterpret_cast<v8::Isolate*>(vm);
     auto profiler = isolate->GetHeapProfiler();
@@ -1934,7 +1958,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_TakeHeapSnapshot(JSVM_VM vm, JSVM_OutputStream s
 
 JSVM_EXTERN JSVM_Status OH_JSVM_OpenInspector(JSVM_Env env, const char* host, uint16_t port)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, host);
 
     std::string inspectorPath;
@@ -1951,7 +1975,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_OpenInspector(JSVM_Env env, const char* host, ui
 
 JSVM_EXTERN JSVM_Status OH_JSVM_CloseInspector(JSVM_Env env)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     auto agent = env->GetInspectorAgent();
     if (!agent->IsActive()) {
         return JSVM_GENERIC_FAILURE;
@@ -1962,7 +1986,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_CloseInspector(JSVM_Env env)
 
 JSVM_EXTERN JSVM_Status OH_JSVM_WaitForDebugger(JSVM_Env env, bool breakNextLine)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     auto* agent = env->GetInspectorAgent();
     if (!agent->IsActive()) {
         return JSVM_GENERIC_FAILURE;
@@ -1978,6 +2002,8 @@ JSVM_EXTERN JSVM_Status OH_JSVM_WaitForDebugger(JSVM_Env env, bool breakNextLine
 
 JSVM_EXTERN JSVM_Status OH_JSVM_PumpMessageLoop(JSVM_VM vm, bool* result)
 {
+    // XTS JsvmTest0730 to be fixed
+    JSVM_API_ENTER_GLOBAL(K_JSVM_ACCESS_V8_GLOBAL);
     auto isolate = reinterpret_cast<v8::Isolate*>(vm);
     *result = v8::platform::PumpMessageLoop(v8impl::g_platform.get(), isolate);
     return JSVM_OK;
@@ -1985,7 +2011,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_PumpMessageLoop(JSVM_VM vm, bool* result)
 
 JSVM_EXTERN JSVM_Status OH_JSVM_PerformMicrotaskCheckpoint(JSVM_VM vm)
 {
-    CHECK_ARG_WITHOUT_ENV(vm);
+    JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_V8_ISOLATE);
     auto isolate = reinterpret_cast<v8::Isolate*>(vm);
     isolate->PerformMicrotaskCheckpoint();
     return JSVM_OK;
@@ -2023,7 +2049,7 @@ static const char* errorMessages[] = {
 
 JSVM_Status OH_JSVM_GetLastErrorInfo(JSVM_Env env, const JSVM_ExtendedErrorInfo** result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_NO_V8);
     CHECK_ARG(env, result);
 
     // The value of the constant below must be updated to reference the last
@@ -2052,7 +2078,7 @@ JSVM_Status OH_JSVM_CreateFunction(JSVM_Env env,
                                    JSVM_Callback cb,
                                    JSVM_Value* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, result);
     CHECK_ARG(env, cb);
 
@@ -2082,7 +2108,7 @@ JSVM_Status OH_JSVM_CreateFunctionWithScript(JSVM_Env env,
                                              JSVM_Value script,
                                              JSVM_Value* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, script);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, script);
@@ -2128,7 +2154,7 @@ JSVM_Status OH_JSVM_DefineClass(JSVM_Env env,
                                 const JSVM_PropertyDescriptor* properties,
                                 JSVM_Value* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, result);
     CHECK_ARG(env, constructor);
 
@@ -2215,6 +2241,7 @@ JSVM_Status OH_JSVM_DefineClass(JSVM_Env env,
 
 JSVM_Status OH_JSVM_GetPropertyNames(JSVM_Env env, JSVM_Value object, JSVM_Value* result)
 {
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     return OH_JSVM_GetAllPropertyNames(env, object, JSVM_KEY_INCLUDE_PROTOTYPES,
                                        static_cast<JSVM_KeyFilter>(JSVM_KEY_ENUMERABLE | JSVM_KEY_SKIP_SYMBOLS),
                                        JSVM_KEY_NUMBERS_TO_STRINGS, result);
@@ -2227,7 +2254,7 @@ JSVM_Status OH_JSVM_GetAllPropertyNames(JSVM_Env env,
                                         JSVM_KeyConversion keyConversion,
                                         JSVM_Value* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, object);
 
@@ -2288,7 +2315,7 @@ JSVM_Status OH_JSVM_GetAllPropertyNames(JSVM_Env env,
 
 JSVM_Status OH_JSVM_SetProperty(JSVM_Env env, JSVM_Value object, JSVM_Value key, JSVM_Value value)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, key);
     CHECK_ARG(env, value);
     CHECK_SCOPE(env, object);
@@ -2310,7 +2337,7 @@ JSVM_Status OH_JSVM_SetProperty(JSVM_Env env, JSVM_Value object, JSVM_Value key,
 
 JSVM_Status OH_JSVM_HasProperty(JSVM_Env env, JSVM_Value object, JSVM_Value key, bool* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, result);
     CHECK_ARG(env, key);
     CHECK_SCOPE(env, object);
@@ -2331,7 +2358,7 @@ JSVM_Status OH_JSVM_HasProperty(JSVM_Env env, JSVM_Value object, JSVM_Value key,
 
 JSVM_Status OH_JSVM_GetProperty(JSVM_Env env, JSVM_Value object, JSVM_Value key, JSVM_Value* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, key);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, object);
@@ -2354,7 +2381,7 @@ JSVM_Status OH_JSVM_GetProperty(JSVM_Env env, JSVM_Value object, JSVM_Value key,
 
 JSVM_Status OH_JSVM_DeleteProperty(JSVM_Env env, JSVM_Value object, JSVM_Value key, bool* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, key);
     CHECK_SCOPE(env, object);
     CHECK_SCOPE(env, key);
@@ -2375,7 +2402,7 @@ JSVM_Status OH_JSVM_DeleteProperty(JSVM_Env env, JSVM_Value object, JSVM_Value k
 
 JSVM_Status OH_JSVM_HasOwnProperty(JSVM_Env env, JSVM_Value object, JSVM_Value key, bool* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, key);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, object);
@@ -2396,7 +2423,7 @@ JSVM_Status OH_JSVM_HasOwnProperty(JSVM_Env env, JSVM_Value object, JSVM_Value k
 
 JSVM_Status OH_JSVM_SetNamedProperty(JSVM_Env env, JSVM_Value object, const char* utf8name, JSVM_Value value)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, value);
     CHECK_SCOPE(env, object);
     CHECK_SCOPE(env, value);
@@ -2418,7 +2445,7 @@ JSVM_Status OH_JSVM_SetNamedProperty(JSVM_Env env, JSVM_Value object, const char
 
 JSVM_Status OH_JSVM_HasNamedProperty(JSVM_Env env, JSVM_Value object, const char* utf8name, bool* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, object);
 
@@ -2439,7 +2466,7 @@ JSVM_Status OH_JSVM_HasNamedProperty(JSVM_Env env, JSVM_Value object, const char
 
 JSVM_Status OH_JSVM_GetNamedProperty(JSVM_Env env, JSVM_Value object, const char* utf8name, JSVM_Value* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, object);
 
@@ -2463,7 +2490,7 @@ JSVM_Status OH_JSVM_GetNamedProperty(JSVM_Env env, JSVM_Value object, const char
 
 JSVM_Status OH_JSVM_SetElement(JSVM_Env env, JSVM_Value object, uint32_t index, JSVM_Value value)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, value);
     CHECK_SCOPE(env, object);
     CHECK_SCOPE(env, value);
@@ -2482,7 +2509,7 @@ JSVM_Status OH_JSVM_SetElement(JSVM_Env env, JSVM_Value object, uint32_t index, 
 
 JSVM_Status OH_JSVM_HasElement(JSVM_Env env, JSVM_Value object, uint32_t index, bool* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, object);
 
@@ -2500,7 +2527,7 @@ JSVM_Status OH_JSVM_HasElement(JSVM_Env env, JSVM_Value object, uint32_t index, 
 
 JSVM_Status OH_JSVM_GetElement(JSVM_Env env, JSVM_Value object, uint32_t index, JSVM_Value* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, object);
 
@@ -2519,7 +2546,7 @@ JSVM_Status OH_JSVM_GetElement(JSVM_Env env, JSVM_Value object, uint32_t index, 
 
 JSVM_Status OH_JSVM_DeleteElement(JSVM_Env env, JSVM_Value object, uint32_t index, bool* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_SCOPE(env, object);
 
     v8::Local<v8::Context> context = env->context();
@@ -2540,7 +2567,7 @@ JSVM_Status OH_JSVM_DefineProperties(JSVM_Env env,
                                      size_t propertyCount,
                                      const JSVM_PropertyDescriptor* properties)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_SCOPE(env, object);
     if (propertyCount > 0) {
         CHECK_ARG(env, properties);
@@ -2616,7 +2643,7 @@ JSVM_Status OH_JSVM_DefineProperties(JSVM_Env env,
 
 JSVM_Status OH_JSVM_ObjectFreeze(JSVM_Env env, JSVM_Value object)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_SCOPE(env, object);
 
     v8::Local<v8::Context> context = env->context();
@@ -2633,7 +2660,7 @@ JSVM_Status OH_JSVM_ObjectFreeze(JSVM_Env env, JSVM_Value object)
 
 JSVM_Status OH_JSVM_ObjectSeal(JSVM_Env env, JSVM_Value object)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_SCOPE(env, object);
 
     v8::Local<v8::Context> context = env->context();
@@ -2650,7 +2677,7 @@ JSVM_Status OH_JSVM_ObjectSeal(JSVM_Env env, JSVM_Value object)
 
 JSVM_Status OH_JSVM_IsArray(JSVM_Env env, JSVM_Value value, bool* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, value);
@@ -2663,7 +2690,7 @@ JSVM_Status OH_JSVM_IsArray(JSVM_Env env, JSVM_Value value, bool* result)
 
 JSVM_Status OH_JSVM_IsRegExp(JSVM_Env env, JSVM_Value value, bool* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, value);
@@ -2676,7 +2703,7 @@ JSVM_Status OH_JSVM_IsRegExp(JSVM_Env env, JSVM_Value value, bool* result)
 
 JSVM_Status OH_JSVM_GetArrayLength(JSVM_Env env, JSVM_Value value, uint32_t* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, value);
@@ -2695,7 +2722,7 @@ JSVM_Status OH_JSVM_GetArrayLength(JSVM_Env env, JSVM_Value value, uint32_t* res
 
 JSVM_Status OH_JSVM_StrictEquals(JSVM_Env env, JSVM_Value lhs, JSVM_Value rhs, bool* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, lhs);
     CHECK_ARG(env, rhs);
     CHECK_ARG(env, result);
@@ -2711,7 +2738,7 @@ JSVM_Status OH_JSVM_StrictEquals(JSVM_Env env, JSVM_Value lhs, JSVM_Value rhs, b
 
 JSVM_Status OH_JSVM_Equals(JSVM_Env env, JSVM_Value lhs, JSVM_Value rhs, bool* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, lhs);
     CHECK_ARG(env, rhs);
     CHECK_ARG(env, result);
@@ -2728,7 +2755,7 @@ JSVM_Status OH_JSVM_Equals(JSVM_Env env, JSVM_Value lhs, JSVM_Value rhs, bool* r
 
 JSVM_Status OH_JSVM_GetPrototype(JSVM_Env env, JSVM_Value object, JSVM_Value* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, object);
 
@@ -2745,7 +2772,7 @@ JSVM_Status OH_JSVM_GetPrototype(JSVM_Env env, JSVM_Value object, JSVM_Value* re
 
 JSVM_Status OH_JSVM_CreateObject(JSVM_Env env, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_CONTEXT);
     CHECK_ARG(env, result);
 
     *result = v8impl::JsValueFromV8LocalValue(v8::Object::New(env->isolate));
@@ -2757,7 +2784,7 @@ JSVM_Status OH_JSVM_CreateObject(JSVM_Env env, JSVM_Value* result)
 
 JSVM_Status OH_JSVM_CreateArray(JSVM_Env env, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_CONTEXT);
     CHECK_ARG(env, result);
 
     *result = v8impl::JsValueFromV8LocalValue(v8::Array::New(env->isolate));
@@ -2769,7 +2796,7 @@ JSVM_Status OH_JSVM_CreateArray(JSVM_Env env, JSVM_Value* result)
 
 JSVM_Status OH_JSVM_CreateArrayWithLength(JSVM_Env env, size_t length, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_CONTEXT);
     CHECK_ARG(env, result);
 
     *result = v8impl::JsValueFromV8LocalValue(v8::Array::New(env->isolate, length));
@@ -2781,6 +2808,7 @@ JSVM_Status OH_JSVM_CreateArrayWithLength(JSVM_Env env, size_t length, JSVM_Valu
 
 JSVM_Status OH_JSVM_CreateStringLatin1(JSVM_Env env, const char* str, size_t length, JSVM_Value* result)
 {
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     return v8impl::NewString(env, str, length, result, [&](v8::Isolate* isolate) {
         return v8::String::NewFromOneByte(isolate, reinterpret_cast<const uint8_t*>(str), v8::NewStringType::kNormal,
                                           length);
@@ -2789,6 +2817,7 @@ JSVM_Status OH_JSVM_CreateStringLatin1(JSVM_Env env, const char* str, size_t len
 
 JSVM_Status OH_JSVM_CreateStringUtf8(JSVM_Env env, const char* str, size_t length, JSVM_Value* result)
 {
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     return v8impl::NewString(env, str, length, result, [&](v8::Isolate* isolate) {
         return v8::String::NewFromUtf8(isolate, str, v8::NewStringType::kNormal, static_cast<int>(length));
     });
@@ -2796,6 +2825,7 @@ JSVM_Status OH_JSVM_CreateStringUtf8(JSVM_Env env, const char* str, size_t lengt
 
 JSVM_Status OH_JSVM_CreateStringUtf16(JSVM_Env env, const char16_t* str, size_t length, JSVM_Value* result)
 {
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     return v8impl::NewString(env, str, length, result, [&](v8::Isolate* isolate) {
         return v8::String::NewFromTwoByte(isolate, reinterpret_cast<const uint16_t*>(str), v8::NewStringType::kNormal,
                                           length);
@@ -2804,7 +2834,7 @@ JSVM_Status OH_JSVM_CreateStringUtf16(JSVM_Env env, const char16_t* str, size_t 
 
 JSVM_Status OH_JSVM_CreateDouble(JSVM_Env env, double value, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, result);
 
     *result = v8impl::JsValueFromV8LocalValue(v8::Number::New(env->isolate, value));
@@ -2816,7 +2846,7 @@ JSVM_Status OH_JSVM_CreateDouble(JSVM_Env env, double value, JSVM_Value* result)
 
 JSVM_Status OH_JSVM_CreateInt32(JSVM_Env env, int32_t value, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, result);
 
     *result = v8impl::JsValueFromV8LocalValue(v8::Integer::New(env->isolate, value));
@@ -2828,7 +2858,7 @@ JSVM_Status OH_JSVM_CreateInt32(JSVM_Env env, int32_t value, JSVM_Value* result)
 
 JSVM_Status OH_JSVM_CreateUint32(JSVM_Env env, uint32_t value, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, result);
 
     *result = v8impl::JsValueFromV8LocalValue(v8::Integer::NewFromUnsigned(env->isolate, value));
@@ -2840,7 +2870,7 @@ JSVM_Status OH_JSVM_CreateUint32(JSVM_Env env, uint32_t value, JSVM_Value* resul
 
 JSVM_Status OH_JSVM_CreateInt64(JSVM_Env env, int64_t value, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, result);
 
     *result = v8impl::JsValueFromV8LocalValue(v8::Number::New(env->isolate, static_cast<double>(value)));
@@ -2852,7 +2882,7 @@ JSVM_Status OH_JSVM_CreateInt64(JSVM_Env env, int64_t value, JSVM_Value* result)
 
 JSVM_Status OH_JSVM_CreateBigintInt64(JSVM_Env env, int64_t value, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, result);
 
     *result = v8impl::JsValueFromV8LocalValue(v8::BigInt::New(env->isolate, value));
@@ -2864,7 +2894,7 @@ JSVM_Status OH_JSVM_CreateBigintInt64(JSVM_Env env, int64_t value, JSVM_Value* r
 
 JSVM_Status OH_JSVM_CreateBigintUint64(JSVM_Env env, uint64_t value, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, result);
 
     *result = v8impl::JsValueFromV8LocalValue(v8::BigInt::NewFromUnsigned(env->isolate, value));
@@ -2880,7 +2910,7 @@ JSVM_Status OH_JSVM_CreateBigintWords(JSVM_Env env,
                                       const uint64_t* words,
                                       JSVM_Value* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, words);
     CHECK_ARG(env, result);
 
@@ -2899,7 +2929,7 @@ JSVM_Status OH_JSVM_CreateBigintWords(JSVM_Env env,
 
 JSVM_Status OH_JSVM_GetBoolean(JSVM_Env env, bool value, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, result);
 
     v8::Isolate* isolate = env->isolate;
@@ -2917,7 +2947,7 @@ JSVM_Status OH_JSVM_GetBoolean(JSVM_Env env, bool value, JSVM_Value* result)
 
 JSVM_Status OH_JSVM_CreateSymbol(JSVM_Env env, JSVM_Value description, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, description);
 
@@ -2939,7 +2969,7 @@ JSVM_Status OH_JSVM_CreateSymbol(JSVM_Env env, JSVM_Value description, JSVM_Valu
 
 JSVM_Status OH_JSVM_SymbolFor(JSVM_Env env, const char* utf8description, size_t length, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, result);
 
     JSVM_Value jsDescriptionString;
@@ -2977,7 +3007,7 @@ static JSVM_Status SetErrorCode(JSVM_Env env, v8::Local<v8::Value> error, JSVM_V
 
 JSVM_Status OH_JSVM_CreateError(JSVM_Env env, JSVM_Value code, JSVM_Value msg, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, msg);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, code);
@@ -2997,7 +3027,7 @@ JSVM_Status OH_JSVM_CreateError(JSVM_Env env, JSVM_Value code, JSVM_Value msg, J
 
 JSVM_Status OH_JSVM_CreateTypeError(JSVM_Env env, JSVM_Value code, JSVM_Value msg, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, msg);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, code);
@@ -3016,7 +3046,7 @@ JSVM_Status OH_JSVM_CreateTypeError(JSVM_Env env, JSVM_Value code, JSVM_Value ms
 
 JSVM_Status OH_JSVM_CreateRangeError(JSVM_Env env, JSVM_Value code, JSVM_Value msg, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, msg);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, code);
@@ -3036,7 +3066,7 @@ JSVM_Status OH_JSVM_CreateRangeError(JSVM_Env env, JSVM_Value code, JSVM_Value m
 
 JSVM_Status OH_JSVM_CreateSyntaxError(JSVM_Env env, JSVM_Value code, JSVM_Value msg, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, msg);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, code);
@@ -3058,7 +3088,7 @@ JSVM_Status OH_JSVM_Typeof(JSVM_Env env, JSVM_Value value, JSVM_ValueType* resul
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw
     // JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_NO_TLS_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, value);
@@ -3099,7 +3129,7 @@ JSVM_Status OH_JSVM_Typeof(JSVM_Env env, JSVM_Value value, JSVM_ValueType* resul
 
 JSVM_Status OH_JSVM_GetUndefined(JSVM_Env env, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, result);
 
     *result = v8impl::JsValueFromV8LocalValue(v8::Undefined(env->isolate));
@@ -3110,7 +3140,7 @@ JSVM_Status OH_JSVM_GetUndefined(JSVM_Env env, JSVM_Value* result)
 
 JSVM_Status OH_JSVM_GetNull(JSVM_Env env, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, result);
 
     *result = v8impl::JsValueFromV8LocalValue(v8::Null(env->isolate));
@@ -3128,7 +3158,7 @@ JSVM_Status OH_JSVM_GetCbInfo(JSVM_Env env,             // [in] JSVM environment
                               JSVM_Value* thisArg,      // [out] Receives the JS 'this' arg for the call
                               void** data)
 { // [out] Receives the data pointer for the callback.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, cbinfo);
 
     v8impl::CallbackWrapper* info = reinterpret_cast<v8impl::CallbackWrapper*>(cbinfo);
@@ -3163,7 +3193,7 @@ JSVM_Status OH_JSVM_GetCbInfo(JSVM_Env env,             // [in] JSVM environment
 
 JSVM_Status OH_JSVM_GetNewTarget(JSVM_Env env, JSVM_CallbackInfo cbinfo, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, cbinfo);
     CHECK_ARG(env, result);
 
@@ -3181,7 +3211,7 @@ JSVM_Status OH_JSVM_CallFunction(JSVM_Env env,
                                  const JSVM_Value* argv,
                                  JSVM_Value* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, recv);
     CHECK_SCOPE(env, recv);
     CHECK_SCOPE(env, func);
@@ -3221,7 +3251,7 @@ JSVM_Status OH_JSVM_CallFunction(JSVM_Env env,
 
 JSVM_Status OH_JSVM_GetGlobal(JSVM_Env env, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_CONTEXT);
     CHECK_ARG(env, result);
 
     *result = v8impl::JsValueFromV8LocalValue(env->context()->Global());
@@ -3233,7 +3263,7 @@ JSVM_Status OH_JSVM_GetGlobal(JSVM_Env env, JSVM_Value* result)
 
 JSVM_Status OH_JSVM_Throw(JSVM_Env env, JSVM_Value error)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, error);
     CHECK_SCOPE(env, error);
 
@@ -3247,7 +3277,7 @@ JSVM_Status OH_JSVM_Throw(JSVM_Env env, JSVM_Value error)
 
 JSVM_Status OH_JSVM_ThrowError(JSVM_Env env, const char* code, const char* msg)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
 
     v8::Isolate* isolate = env->isolate;
     v8::Local<v8::String> str;
@@ -3264,7 +3294,7 @@ JSVM_Status OH_JSVM_ThrowError(JSVM_Env env, const char* code, const char* msg)
 
 JSVM_Status OH_JSVM_ThrowTypeError(JSVM_Env env, const char* code, const char* msg)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
 
     v8::Isolate* isolate = env->isolate;
     v8::Local<v8::String> str;
@@ -3281,7 +3311,7 @@ JSVM_Status OH_JSVM_ThrowTypeError(JSVM_Env env, const char* code, const char* m
 
 JSVM_Status OH_JSVM_ThrowRangeError(JSVM_Env env, const char* code, const char* msg)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
 
     v8::Isolate* isolate = env->isolate;
     v8::Local<v8::String> str;
@@ -3298,7 +3328,7 @@ JSVM_Status OH_JSVM_ThrowRangeError(JSVM_Env env, const char* code, const char* 
 
 JSVM_Status OH_JSVM_ThrowSyntaxError(JSVM_Env env, const char* code, const char* msg)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
 
     v8::Isolate* isolate = env->isolate;
     v8::Local<v8::String> str;
@@ -3317,7 +3347,7 @@ JSVM_Status OH_JSVM_IsError(JSVM_Env env, JSVM_Value value, bool* result)
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot
     // throw JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, value);
@@ -3332,7 +3362,7 @@ JSVM_Status OH_JSVM_GetValueDouble(JSVM_Env env, JSVM_Value value, double* resul
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw
     // JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, value);
@@ -3349,7 +3379,7 @@ JSVM_Status OH_JSVM_GetValueInt32(JSVM_Env env, JSVM_Value value, int32_t* resul
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw
     // JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, value);
@@ -3373,7 +3403,7 @@ JSVM_Status OH_JSVM_GetValueUint32(JSVM_Env env, JSVM_Value value, uint32_t* res
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw
     // JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, value);
@@ -3397,7 +3427,7 @@ JSVM_Status OH_JSVM_GetValueInt64(JSVM_Env env, JSVM_Value value, int64_t* resul
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw
     // JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, value);
@@ -3429,7 +3459,7 @@ JSVM_Status OH_JSVM_GetValueInt64(JSVM_Env env, JSVM_Value value, int64_t* resul
 
 JSVM_Status OH_JSVM_GetValueBigintInt64(JSVM_Env env, JSVM_Value value, int64_t* result, bool* lossless)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_ARG(env, lossless);
@@ -3446,7 +3476,7 @@ JSVM_Status OH_JSVM_GetValueBigintInt64(JSVM_Env env, JSVM_Value value, int64_t*
 
 JSVM_Status OH_JSVM_GetValueBigintUint64(JSVM_Env env, JSVM_Value value, uint64_t* result, bool* lossless)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_ARG(env, lossless);
@@ -3467,7 +3497,7 @@ JSVM_Status OH_JSVM_GetValueBigintWords(JSVM_Env env,
                                         size_t* wordCount,
                                         uint64_t* words)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, wordCount);
     CHECK_SCOPE(env, value);
@@ -3497,7 +3527,7 @@ JSVM_Status OH_JSVM_GetValueBool(JSVM_Env env, JSVM_Value value, bool* result)
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw
     // JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, value);
@@ -3520,7 +3550,7 @@ JSVM_Status OH_JSVM_GetValueBool(JSVM_Env env, JSVM_Value value, bool* result)
 // The result argument is optional unless buf is NULL.
 JSVM_Status OH_JSVM_GetValueStringLatin1(JSVM_Env env, JSVM_Value value, char* buf, size_t bufsize, size_t* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_SCOPE(env, value);
 
@@ -3566,7 +3596,7 @@ JSVM_Status OH_JSVM_GetValueStringLatin1(JSVM_Env env, JSVM_Value value, char* b
 // The result argument is optional unless buf is NULL.
 JSVM_Status OH_JSVM_GetValueStringUtf8(JSVM_Env env, JSVM_Value value, char* buf, size_t bufsize, size_t* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_SCOPE(env, value);
 
@@ -3611,7 +3641,7 @@ JSVM_Status OH_JSVM_GetValueStringUtf8(JSVM_Env env, JSVM_Value value, char* buf
 // The result argument is optional unless buf is NULL.
 JSVM_Status OH_JSVM_GetValueStringUtf16(JSVM_Env env, JSVM_Value value, char16_t* buf, size_t bufsize, size_t* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_SCOPE(env, value);
 
@@ -3650,7 +3680,7 @@ JSVM_Status OH_JSVM_GetValueStringUtf16(JSVM_Env env, JSVM_Value value, char16_t
 
 JSVM_Status OH_JSVM_CoerceToBool(JSVM_Env env, JSVM_Value value, JSVM_Value* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, value);
@@ -3665,7 +3695,7 @@ JSVM_Status OH_JSVM_CoerceToBool(JSVM_Env env, JSVM_Value value, JSVM_Value* res
 #define GEN_COERCE_FUNCTION(UpperCaseName, MixedCaseName, LowerCaseName)                            \
     JSVM_Status OH_JSVM_CoerceTo##MixedCaseName(JSVM_Env env, JSVM_Value value, JSVM_Value* result) \
     {                                                                                               \
-        JSVM_PREAMBLE(env);                                                                         \
+        JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);                                                                         \
         CHECK_ARG(env, value);                                                                      \
         CHECK_ARG(env, result);                                                                     \
         CHECK_SCOPE(env, value);                                                                    \
@@ -3694,17 +3724,23 @@ JSVM_Status OH_JSVM_Wrap(JSVM_Env env,
                          void* finalizeHint,
                          JSVM_Ref* result)
 {
-    return v8impl::Wrap(env, jsObject, nativeObject, finalizeCb, finalizeHint, result);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
+    STATUS_CALL(v8impl::Wrap(env, jsObject, nativeObject, finalizeCb, finalizeHint, result));
+    return GET_RETURN_STATUS(env);
 }
 
 JSVM_Status OH_JSVM_Unwrap(JSVM_Env env, JSVM_Value obj, void** result)
 {
-    return v8impl::Unwrap(env, obj, result, v8impl::KEEP_WRAP);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
+    STATUS_CALL(v8impl::Unwrap(env, obj, result, v8impl::KEEP_WRAP));
+    return GET_RETURN_STATUS(env);
 }
 
 JSVM_Status OH_JSVM_RemoveWrap(JSVM_Env env, JSVM_Value obj, void** result)
 {
-    return v8impl::Unwrap(env, obj, result, v8impl::REMOVE_WRAP);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
+    STATUS_CALL(v8impl::Unwrap(env, obj, result, v8impl::REMOVE_WRAP));
+    return GET_RETURN_STATUS(env);
 }
 
 JSVM_Status OH_JSVM_CreateExternal(JSVM_Env env,
@@ -3713,7 +3749,7 @@ JSVM_Status OH_JSVM_CreateExternal(JSVM_Env env,
                                    void* finalizeHint,
                                    JSVM_Value* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, result);
 
     v8::Isolate* isolate = env->isolate;
@@ -3733,7 +3769,7 @@ JSVM_Status OH_JSVM_CreateExternal(JSVM_Env env,
 
 JSVM_Status OH_JSVM_TypeTagObject(JSVM_Env env, JSVM_Value object, const JSVM_TypeTag* typeTag)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_SCOPE(env, object);
     v8::Local<v8::Context> context = env->context();
     v8::Local<v8::Object> obj;
@@ -3757,7 +3793,7 @@ JSVM_Status OH_JSVM_TypeTagObject(JSVM_Env env, JSVM_Value object, const JSVM_Ty
 
 JSVM_Status OH_JSVM_CheckObjectTypeTag(JSVM_Env env, JSVM_Value object, const JSVM_TypeTag* typeTag, bool* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_SCOPE(env, object);
     v8::Local<v8::Context> context = env->context();
     v8::Local<v8::Object> obj;
@@ -3794,7 +3830,7 @@ JSVM_Status OH_JSVM_CheckObjectTypeTag(JSVM_Env env, JSVM_Value object, const JS
 
 JSVM_Status OH_JSVM_GetValueExternal(JSVM_Env env, JSVM_Value value, void** result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, value);
@@ -3813,7 +3849,7 @@ JSVM_Status OH_JSVM_CreateReference(JSVM_Env env, JSVM_Value value, uint32_t ini
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw
     // JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_NO_TLS_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, value);
@@ -3822,6 +3858,7 @@ JSVM_Status OH_JSVM_CreateReference(JSVM_Env env, JSVM_Value value, uint32_t ini
     v8impl::UserReference* reference = v8impl::UserReference::New(env, v8Value, initialRefcount);
 
     *result = reinterpret_cast<JSVM_Ref>(reference);
+    JSVM_API_TRACE_STATE("created", "env", env, "ref", *result, "refCount", initialRefcount);
     return ClearLastError(env);
 }
 
@@ -3831,9 +3868,10 @@ JSVM_Status OH_JSVM_DeleteReference(JSVM_Env env, JSVM_Ref ref)
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw
     // JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_NO_TLS_ISOLATE);
     CHECK_ARG(env, ref);
 
+    JSVM_API_TRACE_STATE("destroy", "env", env, "ref", ref);
     delete reinterpret_cast<v8impl::UserReference*>(ref);
 
     return ClearLastError(env);
@@ -3848,7 +3886,7 @@ JSVM_Status OH_JSVM_ReferenceRef(JSVM_Env env, JSVM_Ref ref, uint32_t* result)
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw
     // JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_NO_TLS_ISOLATE);
     CHECK_ARG(env, ref);
 
     v8impl::UserReference* reference = reinterpret_cast<v8impl::UserReference*>(ref);
@@ -3858,6 +3896,7 @@ JSVM_Status OH_JSVM_ReferenceRef(JSVM_Env env, JSVM_Ref ref, uint32_t* result)
         *result = count;
     }
 
+    JSVM_API_TRACE_STATE("ref", "env", env, "ref", ref, "refCount", count);
     return ClearLastError(env);
 }
 
@@ -3869,7 +3908,7 @@ JSVM_Status OH_JSVM_ReferenceUnref(JSVM_Env env, JSVM_Ref ref, uint32_t* result)
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw
     // JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_NO_TLS_ISOLATE);
     CHECK_ARG(env, ref);
 
     v8impl::UserReference* reference = reinterpret_cast<v8impl::UserReference*>(ref);
@@ -3884,6 +3923,7 @@ JSVM_Status OH_JSVM_ReferenceUnref(JSVM_Env env, JSVM_Ref ref, uint32_t* result)
         *result = count;
     }
 
+    JSVM_API_TRACE_STATE("unref", "env", env, "ref", ref, "refCount", count);
     return ClearLastError(env);
 }
 
@@ -3894,7 +3934,7 @@ JSVM_Status OH_JSVM_GetReferenceValue(JSVM_Env env, JSVM_Ref ref, JSVM_Value* re
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw
     // JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_NO_TLS_ISOLATE);
     CHECK_ARG(env, ref);
     CHECK_ARG(env, result);
 
@@ -3909,13 +3949,14 @@ JSVM_Status OH_JSVM_OpenHandleScope(JSVM_Env env, JSVM_HandleScope* result)
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw
     // JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_NO_TLS_ISOLATE);
     CHECK_ARG(env, result);
 
     auto* scope = env->scopeMemoryManager.New<v8impl::HandleScopeWrapper>(env->isolate);
 
     *result = v8impl::JsHandleScopeFromV8HandleScope(scope);
     env->openHandleScopes++;
+    JSVM_API_TRACE_STATE("opened", "env", env, "scope", *result, "depth", env->openHandleScopes);
 
     if (UNLIKELY(env->debugFlags)) {
         if (UNLIKELY(env->debugFlags & (1 << JSVM_SCOPE_CHECK))) {
@@ -3930,13 +3971,14 @@ JSVM_Status OH_JSVM_CloseHandleScope(JSVM_Env env, JSVM_HandleScope scope)
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw
     // JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_NO_TLS_ISOLATE);
     CHECK_ARG(env, scope);
     if (env->openHandleScopes == 0) {
         return JSVM_HANDLE_SCOPE_MISMATCH;
     }
 
     env->ReleaseJsvmData();
+    JSVM_API_TRACE_STATE("closed", "env", env, "scope", scope, "depthBefore", env->openHandleScopes);
     env->openHandleScopes--;
 
     env->scopeMemoryManager.Delete(v8impl::V8HandleScopeFromJsHandleScope(scope));
@@ -3955,12 +3997,13 @@ JSVM_Status OH_JSVM_OpenEscapableHandleScope(JSVM_Env env, JSVM_EscapableHandleS
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw
     // JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_NO_TLS_ISOLATE);
     CHECK_ARG(env, result);
 
     auto* scope = env->scopeMemoryManager.New<v8impl::EscapableHandleScopeWrapper>(env->isolate);
     *result = v8impl::JsEscapableHandleScopeFromV8EscapableHandleScope(scope);
     env->openHandleScopes++;
+    JSVM_API_TRACE_STATE("opened", "env", env, "scope", *result, "depth", env->openHandleScopes);
 
     if (UNLIKELY(env->debugFlags)) {
         if (UNLIKELY(env->debugFlags & (1 << JSVM_SCOPE_CHECK))) {
@@ -3975,12 +4018,13 @@ JSVM_Status OH_JSVM_CloseEscapableHandleScope(JSVM_Env env, JSVM_EscapableHandle
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw
     // JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_NO_TLS_ISOLATE);
     CHECK_ARG(env, scope);
     if (env->openHandleScopes == 0) {
         return JSVM_HANDLE_SCOPE_MISMATCH;
     }
 
+    JSVM_API_TRACE_STATE("closed", "env", env, "scope", scope, "depthBefore", env->openHandleScopes);
     env->scopeMemoryManager.Delete(v8impl::V8EscapableHandleScopeFromJsEscapableHandleScope(scope));
     env->openHandleScopes--;
 
@@ -3996,7 +4040,7 @@ JSVM_Status OH_JSVM_CloseEscapableHandleScope(JSVM_Env env, JSVM_EscapableHandle
 
 JSVM_Status OH_JSVM_SetDebugOption(JSVM_Env env, JSVM_DebugOption debugOption, bool isEnabled)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_NO_V8);
     if (isEnabled) {
         env->debugFlags |= (1 << debugOption);
     } else {
@@ -4009,7 +4053,7 @@ JSVM_Status OH_JSVM_EscapeHandle(JSVM_Env env, JSVM_EscapableHandleScope scope, 
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw
     // JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_NO_TLS_ISOLATE);
     CHECK_ARG(env, scope);
     CHECK_ARG(env, escapee);
     CHECK_ARG(env, result);
@@ -4019,6 +4063,7 @@ JSVM_Status OH_JSVM_EscapeHandle(JSVM_Env env, JSVM_EscapableHandleScope scope, 
     if (!s->IsEscapeCalled()) {
         *result = v8impl::JsValueFromV8LocalValue(s->Escape(v8impl::V8LocalValueFromJsValue(escapee)));
         ADD_VAL_TO_ESCAPE_SCOPE_CHECK(env, *result);
+        JSVM_API_TRACE_STATE("escaped", "env", env, "scope", scope, "value", *result);
         return ClearLastError(env);
     }
     return SetLastError(env, JSVM_ESCAPE_CALLED_TWICE);
@@ -4030,7 +4075,7 @@ JSVM_Status OH_JSVM_NewInstance(JSVM_Env env,
                                 const JSVM_Value* argv,
                                 JSVM_Value* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, constructor);
     if (argc > 0) {
         CHECK_ARG(env, argv);
@@ -4054,7 +4099,7 @@ JSVM_Status OH_JSVM_NewInstance(JSVM_Env env,
 
 JSVM_Status OH_JSVM_Instanceof(JSVM_Env env, JSVM_Value object, JSVM_Value constructor, bool* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, object);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, object);
@@ -4087,7 +4132,7 @@ JSVM_Status OH_JSVM_IsExceptionPending(JSVM_Env env, bool* result)
 {
     // JSVM_PREAMBLE is not used here: this function must execute when there is a
     // pending exception.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_NO_V8);
     CHECK_ARG(env, result);
 
     *result = !env->lastException.IsEmpty();
@@ -4098,7 +4143,7 @@ JSVM_Status OH_JSVM_GetAndClearLastException(JSVM_Env env, JSVM_Value* result)
 {
     // JSVM_PREAMBLE is not used here: this function must execute when there is a
     // pending exception.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, result);
 
     if (env->lastException.IsEmpty()) {
@@ -4116,7 +4161,7 @@ JSVM_Status OH_JSVM_GetAndClearLastException(JSVM_Env env, JSVM_Value* result)
 
 JSVM_Status OH_JSVM_IsArraybuffer(JSVM_Env env, JSVM_Value value, bool* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, value);
@@ -4129,7 +4174,7 @@ JSVM_Status OH_JSVM_IsArraybuffer(JSVM_Env env, JSVM_Value value, bool* result)
 
 JSVM_Status OH_JSVM_CreateArraybuffer(JSVM_Env env, size_t byteLength, void** data, JSVM_Value* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, result);
 
     v8::Isolate* isolate = env->isolate;
@@ -4150,6 +4195,7 @@ JSVM_Status OH_JSVM_AllocateArrayBufferBackingStoreData(size_t byteLength,
                                                         JSVM_InitializedFlag initialized,
                                                         void** data)
 {
+    JSVM_API_ENTER_GLOBAL(K_JSVM_ACCESS_V8_GLOBAL);
     if (!data) {
         return JSVM_INVALID_ARG;
     }
@@ -4161,6 +4207,7 @@ JSVM_Status OH_JSVM_AllocateArrayBufferBackingStoreData(size_t byteLength,
 
 JSVM_Status OH_JSVM_FreeArrayBufferBackingStoreData(void* data)
 {
+    JSVM_API_ENTER_GLOBAL(K_JSVM_ACCESS_V8_GLOBAL);
     if (!data) {
         return JSVM_INVALID_ARG;
     }
@@ -4176,7 +4223,7 @@ JSVM_Status OH_JSVM_CreateArrayBufferFromBackingStoreData(JSVM_Env env,
                                                           size_t arrayBufferSize,
                                                           JSVM_Value* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, data);
     CHECK_ARG(env, result);
     CHECK_ARG_NOT_ZERO(env, backingStoreSize);
@@ -4219,7 +4266,7 @@ JSVM_Status OH_JSVM_CreateArrayBufferFromExternalMemory(JSVM_Env env,
                                                         bool* copied,
                                                         JSVM_Value* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     JSVM_TRACK_API_USE();
     CHECK_ARG(env, result);
     if (byteLength > 0) {
@@ -4340,7 +4387,7 @@ JSVM_Status OH_JSVM_CreateArrayBufferFromExternalMemory(JSVM_Env env,
 
 JSVM_Status OH_JSVM_GetArraybufferInfo(JSVM_Env env, JSVM_Value arraybuffer, void** data, size_t* byteLength)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, arraybuffer);
     CHECK_SCOPE(env, arraybuffer);
 
@@ -4362,7 +4409,7 @@ JSVM_Status OH_JSVM_GetArraybufferInfo(JSVM_Env env, JSVM_Value arraybuffer, voi
 
 JSVM_Status OH_JSVM_IsTypedarray(JSVM_Env env, JSVM_Value value, bool* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, value);
@@ -4380,7 +4427,7 @@ JSVM_Status OH_JSVM_CreateTypedarray(JSVM_Env env,
                                      size_t byteOffset,
                                      JSVM_Value* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, arraybuffer);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, arraybuffer);
@@ -4442,7 +4489,7 @@ JSVM_Status OH_JSVM_GetTypedarrayInfo(JSVM_Env env,
                                       JSVM_Value* arraybuffer,
                                       size_t* byteOffset)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, typedarray);
     CHECK_SCOPE(env, typedarray);
 
@@ -4510,7 +4557,7 @@ JSVM_Status OH_JSVM_CreateDataview(JSVM_Env env,
                                    size_t byteOffset,
                                    JSVM_Value* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, arraybuffer);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, arraybuffer);
@@ -4535,7 +4582,7 @@ JSVM_Status OH_JSVM_CreateDataview(JSVM_Env env,
 
 JSVM_Status OH_JSVM_IsDataview(JSVM_Env env, JSVM_Value value, bool* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, value);
@@ -4553,7 +4600,7 @@ JSVM_Status OH_JSVM_GetDataviewInfo(JSVM_Env env,
                                     JSVM_Value* arraybuffer,
                                     size_t* byteOffset)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, dataview);
     CHECK_SCOPE(env, dataview);
 
@@ -4591,7 +4638,7 @@ JSVM_Status OH_JSVM_GetDataviewInfo(JSVM_Env env,
 
 JSVM_Status OH_JSVM_GetVersion(JSVM_Env env, uint32_t* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_NO_V8);
     CHECK_ARG(env, result);
     *result = JSVM_API_VERSION;
     return ClearLastError(env);
@@ -4599,7 +4646,7 @@ JSVM_Status OH_JSVM_GetVersion(JSVM_Env env, uint32_t* result)
 
 JSVM_Status OH_JSVM_CreatePromise(JSVM_Env env, JSVM_Deferred* deferred, JSVM_Value* promise)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, deferred);
     CHECK_ARG(env, promise);
 
@@ -4618,7 +4665,7 @@ JSVM_Status OH_JSVM_CreatePromise(JSVM_Env env, JSVM_Deferred* deferred, JSVM_Va
 
 JSVM_Status OH_JSVM_ResolveDeferred(JSVM_Env env, JSVM_Deferred deferred, JSVM_Value resolution)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, resolution);
     CHECK_SCOPE(env, resolution);
 
@@ -4630,7 +4677,7 @@ JSVM_Status OH_JSVM_ResolveDeferred(JSVM_Env env, JSVM_Deferred deferred, JSVM_V
 
 JSVM_Status OH_JSVM_RejectDeferred(JSVM_Env env, JSVM_Deferred deferred, JSVM_Value resolution)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, resolution);
     CHECK_SCOPE(env, resolution);
 
@@ -4642,7 +4689,7 @@ JSVM_Status OH_JSVM_RejectDeferred(JSVM_Env env, JSVM_Deferred deferred, JSVM_Va
 
 JSVM_Status OH_JSVM_IsPromise(JSVM_Env env, JSVM_Value value, bool* isPromise)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isPromise);
     CHECK_SCOPE(env, value);
@@ -4654,7 +4701,7 @@ JSVM_Status OH_JSVM_IsPromise(JSVM_Env env, JSVM_Value value, bool* isPromise)
 
 JSVM_Status OH_JSVM_CreateDate(JSVM_Env env, double time, JSVM_Value* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, result);
 
     v8::MaybeLocal<v8::Value> maybeDate = v8::Date::New(env->context(), time);
@@ -4668,7 +4715,7 @@ JSVM_Status OH_JSVM_CreateDate(JSVM_Env env, double time, JSVM_Value* result)
 
 JSVM_Status OH_JSVM_IsDate(JSVM_Env env, JSVM_Value value, bool* isDate)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isDate);
     CHECK_SCOPE(env, value);
@@ -4680,7 +4727,7 @@ JSVM_Status OH_JSVM_IsDate(JSVM_Env env, JSVM_Value value, bool* isDate)
 
 JSVM_Status OH_JSVM_GetDateValue(JSVM_Env env, JSVM_Value value, double* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, value);
@@ -4703,7 +4750,7 @@ JSVM_Status OH_JSVM_AddFinalizer(JSVM_Env env,
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw
     // JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, jsObject);
     CHECK_ARG(env, finalizeCb);
     CHECK_SCOPE(env, jsObject);
@@ -4722,7 +4769,7 @@ JSVM_Status OH_JSVM_AddFinalizer(JSVM_Env env,
 
 JSVM_Status OH_JSVM_AdjustExternalMemory(JSVM_Env env, int64_t changeInBytes, int64_t* adjustedValue)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, adjustedValue);
 
     *adjustedValue = env->isolate->AdjustAmountOfExternalAllocatedMemory(changeInBytes);
@@ -4732,7 +4779,7 @@ JSVM_Status OH_JSVM_AdjustExternalMemory(JSVM_Env env, int64_t changeInBytes, in
 
 JSVM_Status OH_JSVM_SetInstanceData(JSVM_Env env, void* data, JSVM_Finalize finalizeCb, void* finalizeHint)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_NO_V8);
 
     v8impl::FinalizerTracker* oldData = static_cast<v8impl::FinalizerTracker*>(env->instanceData);
     if (oldData != nullptr) {
@@ -4748,7 +4795,7 @@ JSVM_Status OH_JSVM_SetInstanceData(JSVM_Env env, void* data, JSVM_Finalize fina
 
 JSVM_Status OH_JSVM_GetInstanceData(JSVM_Env env, void** data)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_NO_V8);
     CHECK_ARG(env, data);
 
     v8impl::FinalizerTracker* idata = static_cast<v8impl::FinalizerTracker*>(env->instanceData);
@@ -4760,7 +4807,7 @@ JSVM_Status OH_JSVM_GetInstanceData(JSVM_Env env, void** data)
 
 JSVM_Status OH_JSVM_DetachArraybuffer(JSVM_Env env, JSVM_Value arraybuffer)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, arraybuffer);
     CHECK_SCOPE(env, arraybuffer);
 
@@ -4777,7 +4824,7 @@ JSVM_Status OH_JSVM_DetachArraybuffer(JSVM_Env env, JSVM_Value arraybuffer)
 
 JSVM_Status OH_JSVM_IsDetachedArraybuffer(JSVM_Env env, JSVM_Value arraybuffer, bool* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, arraybuffer);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, arraybuffer);
@@ -4799,7 +4846,7 @@ JSVM_Status OH_JSVM_DefineClassWithPropertyHandler(JSVM_Env env,
                                                    JSVM_Callback callAsFunctionCallback,
                                                    JSVM_Value* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, result);
     CHECK_ARG(env, constructor);
     CHECK_ARG(env, constructor->callback);
@@ -4936,7 +4983,7 @@ JSVM_Status OH_JSVM_DefineClassWithPropertyHandler(JSVM_Env env,
 
 JSVM_Status OH_JSVM_IsLocked(JSVM_Env env, bool* isLocked)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_LOCK_CONTROL);
     CHECK_ARG(env, isLocked);
 
     *isLocked = v8::Locker::IsLocked(env->isolate);
@@ -4946,7 +4993,7 @@ JSVM_Status OH_JSVM_IsLocked(JSVM_Env env, bool* isLocked)
 
 JSVM_Status OH_JSVM_AcquireLock(JSVM_Env env)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_LOCK_CONTROL);
 
     bool isLocked = v8::Locker::IsLocked(env->isolate);
     if (!isLocked) {
@@ -4958,7 +5005,7 @@ JSVM_Status OH_JSVM_AcquireLock(JSVM_Env env)
 
 JSVM_Status OH_JSVM_ReleaseLock(JSVM_Env env)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_LOCK_CONTROL);
 
     bool isLocked = v8::Locker::IsLocked(env->isolate);
     if (isLocked && env->locker != nullptr) {
@@ -4971,7 +5018,7 @@ JSVM_Status OH_JSVM_ReleaseLock(JSVM_Env env)
 
 JSVM_Status OH_JSVM_IsCallable(JSVM_Env env, JSVM_Value value, bool* isCallable)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isCallable);
     CHECK_SCOPE(env, value);
@@ -4994,7 +5041,7 @@ JSVM_Status OH_JSVM_IsUndefined(JSVM_Env env, JSVM_Value value, bool* isUndefine
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8
     // calls here cannot throw JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isUndefined);
     CHECK_SCOPE_ISTYPE(env, value, IsUndefinedImpl(env, value, isUndefined));
@@ -5014,7 +5061,7 @@ JSVM_Status OH_JSVM_IsNull(JSVM_Env env, JSVM_Value value, bool* isNull)
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8
     // calls here cannot throw JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isNull);
     CHECK_SCOPE_ISTYPE(env, value, IsNullImpl(env, value, isNull));
@@ -5034,7 +5081,7 @@ JSVM_Status OH_JSVM_IsNullOrUndefined(JSVM_Env env, JSVM_Value value, bool* isNu
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8
     // calls here cannot throw JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isNullOrUndefined);
     CHECK_SCOPE_ISTYPE(env, value, IsNullOrUndefinedImpl(env, value, isNullOrUndefined));
@@ -5046,7 +5093,7 @@ JSVM_Status OH_JSVM_IsBoolean(JSVM_Env env, JSVM_Value value, bool* isBoolean)
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8
     // calls here cannot throw JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isBoolean);
     CHECK_SCOPE(env, value);
@@ -5061,7 +5108,7 @@ JSVM_Status OH_JSVM_IsNumber(JSVM_Env env, JSVM_Value value, bool* isNumber)
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8
     // calls here cannot throw JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isNumber);
     CHECK_SCOPE(env, value);
@@ -5084,7 +5131,7 @@ JSVM_Status OH_JSVM_IsString(JSVM_Env env, JSVM_Value value, bool* isString)
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8
     // calls here cannot throw JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isString);
     CHECK_SCOPE_ISTYPE(env, value, IsStringImpl(env, value, isString));
@@ -5096,7 +5143,7 @@ JSVM_Status OH_JSVM_IsSymbol(JSVM_Env env, JSVM_Value value, bool* isSymbol)
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8
     // calls here cannot throw JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isSymbol);
     CHECK_SCOPE(env, value);
@@ -5111,7 +5158,7 @@ JSVM_Status OH_JSVM_IsFunction(JSVM_Env env, JSVM_Value value, bool* isFunction)
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8
     // calls here cannot throw JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isFunction);
     CHECK_SCOPE(env, value);
@@ -5126,7 +5173,7 @@ JSVM_Status OH_JSVM_IsObject(JSVM_Env env, JSVM_Value value, bool* isObject)
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8
     // calls here cannot throw JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isObject);
     CHECK_SCOPE(env, value);
@@ -5141,7 +5188,7 @@ JSVM_Status OH_JSVM_IsBigInt(JSVM_Env env, JSVM_Value value, bool* isBigInt)
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8
     // calls here cannot throw JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isBigInt);
     CHECK_SCOPE(env, value);
@@ -5154,7 +5201,7 @@ JSVM_Status OH_JSVM_IsBigInt(JSVM_Env env, JSVM_Value value, bool* isBigInt)
 
 JSVM_Status OH_JSVM_IsConstructor(JSVM_Env env, JSVM_Value value, bool* isConstructor)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isConstructor);
     CHECK_SCOPE(env, value);
@@ -5172,7 +5219,7 @@ JSVM_Status OH_JSVM_IsConstructor(JSVM_Env env, JSVM_Value value, bool* isConstr
 
 JSVM_Status OH_JSVM_CreateRegExp(JSVM_Env env, JSVM_Value value, JSVM_RegExpFlags flags, JSVM_Value* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, value);
@@ -5191,7 +5238,7 @@ JSVM_Status OH_JSVM_CreateRegExp(JSVM_Env env, JSVM_Value value, JSVM_RegExpFlag
 
 JSVM_Status OH_JSVM_CreateMap(JSVM_Env env, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_CONTEXT);
     CHECK_ARG(env, result);
 
     *result = v8impl::JsValueFromV8LocalValue(v8::Map::New(env->isolate));
@@ -5202,7 +5249,7 @@ JSVM_Status OH_JSVM_CreateMap(JSVM_Env env, JSVM_Value* result)
 
 JSVM_Status OH_JSVM_IsMap(JSVM_Env env, JSVM_Value value, bool* isMap)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isMap);
     CHECK_SCOPE(env, value);
@@ -5215,7 +5262,7 @@ JSVM_Status OH_JSVM_IsMap(JSVM_Env env, JSVM_Value value, bool* isMap)
 
 JSVM_Status OH_JSVM_RetainScript(JSVM_Env env, JSVM_Script script)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     auto jsvmData = reinterpret_cast<JSVM_Script_Data__*>(script);
 
     RETURN_STATUS_IF_FALSE(env, jsvmData && !jsvmData->isGlobal, JSVM_INVALID_ARG);
@@ -5229,7 +5276,7 @@ JSVM_Status OH_JSVM_RetainScript(JSVM_Env env, JSVM_Script script)
 
 JSVM_Status OH_JSVM_ReleaseScript(JSVM_Env env, JSVM_Script script)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     auto jsvmData = reinterpret_cast<JSVM_Script_Data__*>(script);
 
     RETURN_STATUS_IF_FALSE(env, jsvmData && jsvmData->isGlobal, JSVM_INVALID_ARG);
@@ -5241,7 +5288,7 @@ JSVM_Status OH_JSVM_ReleaseScript(JSVM_Env env, JSVM_Script script)
 
 JSVM_Status OH_JSVM_OpenInspectorWithName(JSVM_Env env, int pid, const char* name)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     RETURN_STATUS_IF_FALSE(env, !name || strlen(name) < SIZE_MAX, JSVM_INVALID_ARG);
     RETURN_STATUS_IF_FALSE(env, pid >= 0, JSVM_INVALID_ARG);
     std::string path(name ? name : "jsvm");
@@ -5255,7 +5302,7 @@ JSVM_Status OH_JSVM_OpenInspectorWithName(JSVM_Env env, int pid, const char* nam
 
 JSVM_Status OH_JSVM_CreateSet(JSVM_Env env, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_CONTEXT);
     CHECK_ARG(env, result);
 
     *result = v8impl::JsValueFromV8LocalValue(v8::Set::New(env->isolate));
@@ -5266,7 +5313,7 @@ JSVM_Status OH_JSVM_CreateSet(JSVM_Env env, JSVM_Value* result)
 
 JSVM_Status OH_JSVM_IsSet(JSVM_Env env, JSVM_Value value, bool* isSet)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isSet);
     CHECK_SCOPE(env, value);
@@ -5279,7 +5326,7 @@ JSVM_Status OH_JSVM_IsSet(JSVM_Env env, JSVM_Value value, bool* isSet)
 
 JSVM_Status OH_JSVM_ObjectGetPrototypeOf(JSVM_Env env, JSVM_Value object, JSVM_Value* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, object);
 
@@ -5296,7 +5343,7 @@ JSVM_Status OH_JSVM_ObjectGetPrototypeOf(JSVM_Env env, JSVM_Value object, JSVM_V
 
 JSVM_Status OH_JSVM_ObjectSetPrototypeOf(JSVM_Env env, JSVM_Value object, JSVM_Value prototype)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, prototype);
     CHECK_SCOPE(env, object);
 
@@ -5321,7 +5368,7 @@ JSVM_Status OH_JSVM_CompileWasmModule(JSVM_Env env,
                                       bool* cacheRejected,
                                       JSVM_Value* wasmModule)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, wasmBytecode);
     RETURN_STATUS_IF_FALSE(env, wasmBytecodeLength > 0, JSVM_INVALID_ARG);
     v8::MaybeLocal<v8::WasmModuleObject> maybeModule;
@@ -5354,7 +5401,7 @@ JSVM_Status OH_JSVM_CompileWasmFunction(JSVM_Env env,
                                         uint32_t functionIndex,
                                         JSVM_WasmOptLevel optLevel)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, wasmModule);
     CHECK_SCOPE(env, wasmModule);
     v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(wasmModule);
@@ -5386,7 +5433,7 @@ JSVM_Status OH_JSVM_IsWasmModuleObject(JSVM_Env env, JSVM_Value value, bool* res
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8
     // calls here cannot throw JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, value);
@@ -5399,7 +5446,7 @@ JSVM_Status OH_JSVM_IsWasmModuleObject(JSVM_Env env, JSVM_Value value, bool* res
 
 JSVM_Status OH_JSVM_CreateWasmCache(JSVM_Env env, JSVM_Value wasmModule, const uint8_t** data, size_t* length)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, wasmModule);
     CHECK_ARG(env, data);
     CHECK_ARG(env, length);
@@ -5431,7 +5478,7 @@ JSVM_Status OH_JSVM_CreateWasmCache(JSVM_Env env, JSVM_Value wasmModule, const u
 
 JSVM_Status OH_JSVM_ReleaseCache(JSVM_Env env, const uint8_t* cacheData, JSVM_CacheType cacheType)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_NO_V8);
     CHECK_ARG(env, cacheData);
     if (cacheType == JSVM_CACHE_TYPE_JS) {
         // The release behavior MUST match the memory allocation of OH_JSVM_CreateCodeCache.
@@ -5448,7 +5495,7 @@ JSVM_Status OH_JSVM_ReleaseCache(JSVM_Env env, const uint8_t* cacheData, JSVM_Ca
 
 JSVM_Status OH_JSVM_IsBooleanObject(JSVM_Env env, JSVM_Value value, bool* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, value);
@@ -5461,7 +5508,7 @@ JSVM_Status OH_JSVM_IsBooleanObject(JSVM_Env env, JSVM_Value value, bool* result
 
 JSVM_Status OH_JSVM_IsBigIntObject(JSVM_Env env, JSVM_Value value, bool* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, value);
@@ -5474,7 +5521,7 @@ JSVM_Status OH_JSVM_IsBigIntObject(JSVM_Env env, JSVM_Value value, bool* result)
 
 JSVM_Status OH_JSVM_IsStringObject(JSVM_Env env, JSVM_Value value, bool* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, value);
@@ -5487,7 +5534,7 @@ JSVM_Status OH_JSVM_IsStringObject(JSVM_Env env, JSVM_Value value, bool* result)
 
 JSVM_Status OH_JSVM_IsNumberObject(JSVM_Env env, JSVM_Value value, bool* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, value);
@@ -5500,7 +5547,7 @@ JSVM_Status OH_JSVM_IsNumberObject(JSVM_Env env, JSVM_Value value, bool* result)
 
 JSVM_Status OH_JSVM_IsSymbolObject(JSVM_Env env, JSVM_Value value, bool* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, value);
@@ -5513,7 +5560,7 @@ JSVM_Status OH_JSVM_IsSymbolObject(JSVM_Env env, JSVM_Value value, bool* result)
 
 JSVM_Status OH_JSVM_GetSymbolToStringTag(JSVM_Env env, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, result);
 
     v8::Local<v8::Symbol> symbolToStringTag = v8::Symbol::GetToStringTag(env->isolate);
@@ -5525,7 +5572,7 @@ JSVM_Status OH_JSVM_GetSymbolToStringTag(JSVM_Env env, JSVM_Value* result)
 
 JSVM_Status OH_JSVM_GetSymbolIterator(JSVM_Env env, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, result);
 
     v8::Local<v8::Symbol> symbolIterator = v8::Symbol::GetIterator(env->isolate);
@@ -5537,7 +5584,7 @@ JSVM_Status OH_JSVM_GetSymbolIterator(JSVM_Env env, JSVM_Value* result)
 
 JSVM_Status OH_JSVM_GetSymbolAsyncIterator(JSVM_Env env, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, result);
 
     v8::Local<v8::Symbol> symbolAsyncIterator = v8::Symbol::GetAsyncIterator(env->isolate);
@@ -5549,7 +5596,7 @@ JSVM_Status OH_JSVM_GetSymbolAsyncIterator(JSVM_Env env, JSVM_Value* result)
 
 JSVM_Status OH_JSVM_GetSymbolHasInstance(JSVM_Env env, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, result);
 
     v8::Local<v8::Symbol> symbolHasInstance = v8::Symbol::GetHasInstance(env->isolate);
@@ -5561,7 +5608,7 @@ JSVM_Status OH_JSVM_GetSymbolHasInstance(JSVM_Env env, JSVM_Value* result)
 
 JSVM_Status OH_JSVM_GetSymbolUnscopables(JSVM_Env env, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, result);
 
     v8::Local<v8::Symbol> symbolUnscopables = v8::Symbol::GetUnscopables(env->isolate);
@@ -5573,7 +5620,7 @@ JSVM_Status OH_JSVM_GetSymbolUnscopables(JSVM_Env env, JSVM_Value* result)
 
 JSVM_Status OH_JSVM_GetSymbolIsConcatSpreadable(JSVM_Env env, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, result);
 
     v8::Local<v8::Symbol> symbolIsConcatSpreadable = v8::Symbol::GetIsConcatSpreadable(env->isolate);
@@ -5585,7 +5632,7 @@ JSVM_Status OH_JSVM_GetSymbolIsConcatSpreadable(JSVM_Env env, JSVM_Value* result
 
 JSVM_Status OH_JSVM_GetSymbolMatch(JSVM_Env env, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, result);
 
     v8::Local<v8::Symbol> symbolMatch = v8::Symbol::GetMatch(env->isolate);
@@ -5597,7 +5644,7 @@ JSVM_Status OH_JSVM_GetSymbolMatch(JSVM_Env env, JSVM_Value* result)
 
 JSVM_Status OH_JSVM_GetSymbolReplace(JSVM_Env env, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, result);
 
     v8::Local<v8::Symbol> symbolReplace = v8::Symbol::GetReplace(env->isolate);
@@ -5609,7 +5656,7 @@ JSVM_Status OH_JSVM_GetSymbolReplace(JSVM_Env env, JSVM_Value* result)
 
 JSVM_Status OH_JSVM_GetSymbolSearch(JSVM_Env env, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, result);
 
     v8::Local<v8::Symbol> symbolSearch = v8::Symbol::GetSearch(env->isolate);
@@ -5621,7 +5668,7 @@ JSVM_Status OH_JSVM_GetSymbolSearch(JSVM_Env env, JSVM_Value* result)
 
 JSVM_Status OH_JSVM_GetSymbolSplit(JSVM_Env env, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, result);
 
     v8::Local<v8::Symbol> symbolSplit = v8::Symbol::GetSplit(env->isolate);
@@ -5633,7 +5680,7 @@ JSVM_Status OH_JSVM_GetSymbolSplit(JSVM_Env env, JSVM_Value* result)
 
 JSVM_Status OH_JSVM_GetSymbolToPrimitive(JSVM_Env env, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, result);
 
     v8::Local<v8::Symbol> symbolToPrimitive = v8::Symbol::GetToPrimitive(env->isolate);
@@ -5645,10 +5692,11 @@ JSVM_Status OH_JSVM_GetSymbolToPrimitive(JSVM_Env env, JSVM_Value* result)
 
 JSVM_Status OH_JSVM_SetMicrotaskPolicy(JSVM_VM vm, JSVM_MicrotaskPolicy policy)
 {
+    JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_V8_ISOLATE);
     static constexpr v8::MicrotasksPolicy converter[] = { v8::MicrotasksPolicy::kExplicit,
                                                           v8::MicrotasksPolicy::kAuto };
     constexpr size_t policyCount = jsvm::ArraySize(converter);
-    if (!vm || static_cast<size_t>(policy) >= policyCount) {
+    if (static_cast<size_t>(policy) >= policyCount) {
         return JSVM_INVALID_ARG;
     }
 
@@ -5661,7 +5709,7 @@ JSVM_Status OH_JSVM_SetMicrotaskPolicy(JSVM_VM vm, JSVM_MicrotaskPolicy policy)
 JSVM_Status OH_JSVM_CreateProxy(JSVM_Env env, JSVM_Value target, JSVM_Value handler, JSVM_Value* result)
 {
     // Check args is not null
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, target);
     CHECK_ARG(env, handler);
     CHECK_ARG(env, result);
@@ -5689,7 +5737,7 @@ JSVM_Status OH_JSVM_CreateProxy(JSVM_Env env, JSVM_Value target, JSVM_Value hand
 
 JSVM_Status OH_JSVM_IsProxy(JSVM_Env env, JSVM_Value value, bool* isProxy)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, isProxy);
     CHECK_SCOPE(env, value);
@@ -5702,7 +5750,7 @@ JSVM_Status OH_JSVM_IsProxy(JSVM_Env env, JSVM_Value value, bool* isProxy)
 
 JSVM_Status OH_JSVM_ProxyGetTarget(JSVM_Env env, JSVM_Value value, JSVM_Value* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, value);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, value);
@@ -5721,7 +5769,7 @@ JSVM_Status OH_JSVM_CreateDataReference(JSVM_Env env, JSVM_Data data, uint32_t i
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw
     // JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, data);
     CHECK_ARG(env, result);
     RETURN_STATUS_IF_FALSE(env, initialRefcount != 0, JSVM_INVALID_ARG);
@@ -5740,7 +5788,7 @@ JSVM_Status OH_JSVM_GetReferenceData(JSVM_Env env, JSVM_Ref ref, JSVM_Data* resu
 {
     // Omit JSVM_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw
     // JS exceptions.
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, ref);
     CHECK_ARG(env, result);
 
@@ -5753,7 +5801,7 @@ JSVM_Status OH_JSVM_GetReferenceData(JSVM_Env env, JSVM_Ref ref, JSVM_Data* resu
 
 JSVM_Status OH_JSVM_CreatePrivate(JSVM_Env env, JSVM_Value description, JSVM_Data* result)
 {
-    CHECK_ENV(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, result);
     CHECK_SCOPE(env, description);
 
@@ -5773,7 +5821,7 @@ JSVM_Status OH_JSVM_CreatePrivate(JSVM_Env env, JSVM_Value description, JSVM_Dat
 
 JSVM_Status OH_JSVM_SetPrivate(JSVM_Env env, JSVM_Value object, JSVM_Data key, JSVM_Value value)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, object);
     CHECK_ARG(env, key);
     CHECK_ARG(env, value);
@@ -5795,7 +5843,7 @@ JSVM_Status OH_JSVM_SetPrivate(JSVM_Env env, JSVM_Value object, JSVM_Data key, J
 
 JSVM_Status OH_JSVM_GetPrivate(JSVM_Env env, JSVM_Value object, JSVM_Data key, JSVM_Value* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, object);
     CHECK_ARG(env, key);
     CHECK_ARG(env, result);
@@ -5818,7 +5866,7 @@ JSVM_Status OH_JSVM_GetPrivate(JSVM_Env env, JSVM_Value object, JSVM_Data key, J
 
 JSVM_Status OH_JSVM_DeletePrivate(JSVM_Env env, JSVM_Value object, JSVM_Data key)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, object);
     CHECK_ARG(env, key);
     CHECK_SCOPE(env, object);
@@ -5843,6 +5891,7 @@ JSVM_Status OH_JSVM_CreateExternalStringLatin1(JSVM_Env env,
                                                JSVM_Value* result,
                                                bool* copied)
 {
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, copied);
     return v8impl::NewExternalString(env, str, length, finalizeCallback, finalizeHint, result, copied,
                                      OH_JSVM_CreateStringLatin1, [&](v8::Isolate* isolate) {
@@ -5864,6 +5913,7 @@ JSVM_Status OH_JSVM_CreateExternalStringUtf16(JSVM_Env env,
                                               JSVM_Value* result,
                                               bool* copied)
 {
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG(env, copied);
     return v8impl::NewExternalString(env, str, length, finalizeCallback, finalizeHint, result, copied,
                                      OH_JSVM_CreateStringUtf16, [&](v8::Isolate* isolate) {
@@ -5959,7 +6009,8 @@ JSVM_Status OH_JSVM_AddHandlerForGC(JSVM_VM vm,
                                     JSVM_GCType gcType,
                                     void* data)
 {
-    if (!vm || !handler) {
+    JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_V8_ISOLATE);
+    if (!handler) {
         return JSVM_INVALID_ARG;
     }
     auto* isolate = reinterpret_cast<v8::Isolate*>(vm);
@@ -5988,7 +6039,8 @@ JSVM_Status OH_JSVM_RemoveHandlerForGC(JSVM_VM vm,
                                        JSVM_HandlerForGC handler,
                                        void* userData)
 {
-    if (!vm || !handler) {
+    JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_V8_ISOLATE);
+    if (!handler) {
         return JSVM_INVALID_ARG;
     }
     auto* isolate = reinterpret_cast<v8::Isolate*>(vm);
@@ -6032,9 +6084,7 @@ static void OnOOMError(const char* location, const v8::OOMDetails& details)
 
 JSVM_Status OH_JSVM_SetHandlerForOOMError(JSVM_VM vm, JSVM_HandlerForOOMError handler)
 {
-    if (vm == nullptr) {
-        return JSVM_INVALID_ARG;
-    }
+    JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_V8_ISOLATE);
     auto* isolate = reinterpret_cast<v8::Isolate*>(vm);
     auto* pool = v8impl::GetOrCreateIsolateHandlerPool(isolate);
     pool->handlerForOOMError = handler;
@@ -6058,9 +6108,7 @@ static void OnFatalError(const char* location, const char* message)
 
 JSVM_Status OH_JSVM_SetHandlerForFatalError(JSVM_VM vm, JSVM_HandlerForFatalError handler)
 {
-    if (vm == nullptr) {
-        return JSVM_INVALID_ARG;
-    }
+    JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_V8_ISOLATE);
     auto* isolate = reinterpret_cast<v8::Isolate*>(vm);
     auto* pool = v8impl::GetOrCreateIsolateHandlerPool(isolate);
     pool->handlerForFatalError = handler;
@@ -6120,9 +6168,7 @@ static void OnPromiseReject(v8::PromiseRejectMessage rejectMessage)
 
 JSVM_Status OH_JSVM_SetHandlerForPromiseReject(JSVM_VM vm, JSVM_HandlerForPromiseReject handler)
 {
-    if (vm == nullptr) {
-        return JSVM_INVALID_ARG;
-    }
+    JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_V8_ISOLATE);
     auto* isolate = reinterpret_cast<v8::Isolate*>(vm);
     auto* pool = v8impl::GetOrCreateIsolateHandlerPool(isolate);
     pool->handlerForPromiseReject = handler;
@@ -6135,6 +6181,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_TraceStart(size_t count,
                                            const char* tag,
                                            size_t eventsCount)
 {
+    JSVM_API_ENTER_GLOBAL(K_JSVM_ACCESS_V8_GLOBAL);
     if (count > v8impl::TRACE_CATEGORY_COUNT || ((count != 0) != (categories != nullptr))) {
         return JSVM_INVALID_ARG;
     }
@@ -6188,6 +6235,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_TraceStart(size_t count,
 
 JSVM_Status OH_JSVM_TraceStop(JSVM_OutputStream stream, void* streamData)
 {
+    JSVM_API_ENTER_GLOBAL(K_JSVM_ACCESS_V8_GLOBAL);
     if (stream == nullptr || streamData == nullptr || v8impl::g_trace_stream.get() == nullptr) {
         return JSVM_INVALID_ARG;
     }
@@ -6333,7 +6381,7 @@ JSVM_Status OH_JSVM_DefineClassWithOptions(JSVM_Env env,
                                            JSVM_DefineClassOptions options[],
                                            JSVM_Value* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, result);
     CHECK_ARG(env, constructor);
     CHECK_ARG(env, constructor->callback);
@@ -6438,7 +6486,7 @@ JSVM_Status OH_JSVM_PromiseRegisterHandler(JSVM_Env env,
                                            JSVM_Value onRejected,
                                            JSVM_Value* result)
 {
-    JSVM_PREAMBLE(env);
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
     CHECK_ARG(env, promise);
     RETURN_STATUS_IF_FALSE(env, onFulfilled || onRejected, JSVM_INVALID_ARG);
     CHECK_SCOPE(env, promise);
@@ -6506,7 +6554,7 @@ static void OnGCWithHeapThreshold(v8::Isolate* isolate, v8::GCType type, v8::GCC
 
 JSVM_EXTERN JSVM_Status OH_JSVM_TakeRawHeapSnapshot(JSVM_VM vm, JSVM_OutputStream stream, void* streamData)
 {
-    CHECK_ARG_WITHOUT_ENV(vm);
+    JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG_WITHOUT_ENV(stream);
     auto isolate = reinterpret_cast<v8::Isolate*>(vm);
     auto profiler = isolate->GetHeapProfiler();
@@ -6523,7 +6571,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_SetHeapThresholdCallback(JSVM_VM vm,
                                                          JSVM_HandlerForHeapThreshold callback,
                                                          void* data)
 {
-    CHECK_ARG_WITHOUT_ENV(vm);
+    JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG_WITHOUT_ENV(callback);
     if (threshold == 0) {
         return JSVM_INVALID_ARG;
@@ -6552,7 +6600,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_ClearHeapThresholdCallback(JSVM_VM vm,
                                                            JSVM_HandlerForHeapThreshold callback,
                                                            void* data)
 {
-    CHECK_ARG_WITHOUT_ENV(vm);
+    JSVM_API_ENTER_VM(vm, K_JSVM_ACCESS_V8_ISOLATE);
     CHECK_ARG_WITHOUT_ENV(callback);
 
     auto* isolate = reinterpret_cast<v8::Isolate*>(vm);
