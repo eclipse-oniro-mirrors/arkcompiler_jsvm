@@ -454,7 +454,7 @@ std::string ScriptPath(uv_loop_t* loop, const std::string& scriptName)
     if (!scriptName.empty()) {
         uv_fs_t req;
         req.ptr = nullptr;
-        if (0 == uv_fs_realpath(loop, &req, scriptName.c_str(), nullptr)) {
+        if (uv_fs_realpath(loop, &req, scriptName.c_str(), nullptr) == 0) {
             CHECK_NOT_NULL(req.ptr);
             scriptPath = std::string(static_cast<char*>(req.ptr));
         }

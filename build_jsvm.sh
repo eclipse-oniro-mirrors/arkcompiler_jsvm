@@ -27,10 +27,6 @@ export SCRIPT_PATCH=$(dirname $(readlink -f "$0"))
 
 source ${SCRIPT_PATCH}/build_jsvm_inter.sh
 
-options="$(getopt -o h "help,sysroot:,jsvm_path:,prefix:,target_cpu:,base_path:" -- "$@")" || usage
-
-eval set -- "$options"
-
 usage() {
     echo "Tool $(basename "$0") Usage"
     echo "Options:"
@@ -42,6 +38,10 @@ usage() {
     echo "          if target_gen_dir not set, will install only to the default path."
     exit 0
 }
+
+options="$(getopt -o h "help,sysroot:,jsvm_path:,prefix:,target_cpu:,base_path:" -- "$@")" || usage
+
+eval set -- "$options"
 
 die() {
     echo $@
