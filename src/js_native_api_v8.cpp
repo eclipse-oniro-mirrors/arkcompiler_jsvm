@@ -156,7 +156,7 @@ static JSVM_Env GetEnvByContext(v8::Local<v8::Context> context)
 }
 
 struct IsolateData {
-    IsolateData(v8::StartupData* blob) : blob(blob) {}
+    explicit IsolateData(v8::StartupData* blob) : blob(blob) {}
 
     ~IsolateData()
     {
@@ -3818,9 +3818,9 @@ JSVM_Status OH_JSVM_CheckObjectTypeTag(JSVM_Env env, JSVM_Value object, const JS
             if (size == ByteSize::SIZE_2_BYTES) {
                 *result = (tag.lower == typeTag->lower && tag.upper == typeTag->upper);
             } else if (size == ByteSize::SIZE_1_BYTES) {
-                *result = (tag.lower == typeTag->lower && 0 == typeTag->upper);
+                *result = (tag.lower == typeTag->lower && typeTag->upper == 0);
             } else if (size == ByteSize::SIZE_0_BYTES) {
-                *result = (0 == typeTag->lower && 0 == typeTag->upper);
+                *result = (typeTag->lower == 0 && typeTag->upper == 0);
             }
         }
     }

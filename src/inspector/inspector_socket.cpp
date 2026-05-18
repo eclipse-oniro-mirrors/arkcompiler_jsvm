@@ -34,7 +34,7 @@ public:
     using Pointer = DeleteFnPtr<TcpHolder, DisconnectAndDispose>;
 
     static Pointer Accept(uv_stream_t* server, InspectorSocket::DelegatePointer delegate);
-    void SetHandler(ProtocolHandler* handler);
+    void SetHandler(ProtocolHandler* protocolHandler);
     int WriteRaw(const std::vector<char>& buffer, uv_write_cb writeCb);
     uv_tcp_t* GetTcp()
     {
@@ -729,9 +729,9 @@ TcpHolder::Pointer TcpHolder::Accept(uv_stream_t* server, InspectorSocket::Deleg
     }
 }
 
-void TcpHolder::SetHandler(ProtocolHandler* protocalHandler)
+void TcpHolder::SetHandler(ProtocolHandler* protocolHandler)
 {
-    handler = protocalHandler;
+    handler = protocolHandler;
 }
 
 int TcpHolder::WriteRaw(const std::vector<char>& buffer, uv_write_cb writeCb)
