@@ -157,9 +157,6 @@ do_env() {
     elif [[ "${TARGET_CPU}" = "arm64" ]]; then
         cflags="  --target=aarch64-linux-ohos"
         cflags+=" --sysroot=${SYSROOT}"
-        if [[ "${DEPENDENCY_TAG}" = "default" ]]; then
-          cflags+=" -isystem ${SYSROOT}/usr/include/aarch64-linux-ohos"
-        fi
         cflags+=" -march=armv8-a"
         cflags+=" -DV8_OS_OH=1"
         cflags+=" -mfpu=neon"
