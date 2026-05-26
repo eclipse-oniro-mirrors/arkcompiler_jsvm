@@ -124,7 +124,6 @@ target_link_options(jsvm
   "-Wl,--build-id=md5"
 )
 
-if (NOT DEPENDENCY_TAG STREQUAL "default")
 if ((DEFINED USE_LIBZ_INNER) AND USE_LIBZ_INNER)
 target_link_libraries(jsvm
   libz_inner.a
@@ -163,5 +162,4 @@ target_link_libraries(jsvm
   libdfx_signalhandler.z.so
   libfaultloggerd.z.so
 )
-endif()
 endif()
