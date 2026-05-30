@@ -345,6 +345,13 @@ void WriteJSVMInitToHisysevent()
 #endif
 }
 
+void WriteHisyseventJSVMOOM(HiSysEventParam* params, int size)
+{
+    OH_HiSysEvent_Write(OHOS::HiviewDFX::HiSysEvent::Domain::JSVM_RUNTIME, "JSVM_OOM",
+                        HiSysEventEventType::HISYSEVENT_FAULT,
+                        params, size);
+}
+
 void WriteOOMErrorToHisysevent(const char* location, const char* detail, bool isHeapOOM, const char* heapStat)
 {
 #ifdef ENABLE_HISYSEVENT
@@ -394,7 +401,7 @@ void WriteOOMErrorToHisysevent(const char* location, const char* detail, bool is
     };
     HiSysEventParam params[] = { modeuleName, processName, appRunningId, locationParam,
         detailParam, heapOOMParam, heapStatParam };
-    WriteHisysevent(params, sizeof(params) / sizeof(params[0]));
+    WriteHisyseventJSVMOOM(params, sizeof(params) / sizeof(params[0]));
 #endif
 }
 } // namespace ohos
