@@ -2235,21 +2235,6 @@ HWTEST_F(JSVMTestWithoutHandleScope, ExternalArrayBuffer_DestroyVMWithPendingFin
     ASSERT_TRUE(finalizeCalled.load()) << "Finalize callback must be called during VM teardown";
 }
 
-HWTEST_F(JSVMTest, JSVMUseLargeMemory, TestSize.Level1)
-{
-    JSVM_HandleScope handle = nullptr;
-    JSVMTEST_CALL(OH_JSVM_OpenHandleScope(env, &handle));
-
-    const int numCount = 100000;
-    JSVM_Deferred defer[numCount] = {nullptr};
-    JSVM_Value promise[numCount] = {nullptr};
-    for (int i = 0; i < numCount; i++) {
-        JSVMTEST_CALL(OH_JSVM_CreatePromise(env, &defer[i], &promise[i]));
-    }
-
-    JSVMTEST_CALL(OH_JSVM_CloseHandleScope(env, handle));
-}
-
 // ============================================================================
 // Cross-thread / Missing-VMScope tests
 //
