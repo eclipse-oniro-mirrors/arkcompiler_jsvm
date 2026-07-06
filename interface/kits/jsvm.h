@@ -948,7 +948,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_CreateArraybuffer(JSVM_Env env, size_t byteLengt
  *
  * @param byteLength: size of backing store memory.
  * @param initialized: initialization status of the backing store memory.
- * @param data: pointer that recieve the backing store memory pointer.
+ * @param data: pointer that receive the backing store memory pointer.
  * @return Returns JSVM funtions result code.
  *         Returns {@link JSVM_OK } if allocation succeed.\n
  *         Returns {@link JSVM_INVALID_ARG } if data is null pointer.\n
@@ -978,7 +978,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_FreeArrayBufferBackingStoreData(void* data);
  * @param backingStoreSize: size of backing store memory.
  * @param offset: start position of the array buffer in the backing store memory.
  * @param arrayBufferSize: size of the array buffer.
- * @param result: pointer that recieve the array buffer.
+ * @param result: pointer that receive the array buffer.
  * @return Returns JSVM funtions result code.
  *         Returns {@link JSVM_OK } if creation succeed.\n
  *         Returns {@link JSVM_INVALID_ARG } if any of the following condition reached:\n
@@ -2601,7 +2601,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_StopCpuProfiler(JSVM_VM vm,
                                                 void* streamData);
 
 /**
- * @brief This funciton takes the current heap snapshot and output to the stream.
+ * @brief This function takes the current heap snapshot and output to the stream.
  *
  * @param vm: The VM whose heap snapshot is taken.
  * @param stream: The output stream callback for receiving the data.
