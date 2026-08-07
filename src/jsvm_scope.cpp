@@ -74,4 +74,11 @@ bool IsolateOwner::TryRelease(uint32_t currentTid, const char* apiName)
     return true;
 }
 
+uint32_t IsolateOwner::GetTid() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    return ownerTid_;
+}
+
 } // namespace v8impl
