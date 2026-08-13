@@ -52,9 +52,7 @@ public:
     // Releases one ownership level. Only the owning thread may release it.
     bool TryRelease(uint32_t currentTid, const char* apiName);
 
-    uint32_t GetTid() const {
-        return ownerTid_;
-    }
+    uint32_t GetTid() const;
 
     IsolateOwner(const IsolateOwner&) = delete;
     IsolateOwner& operator=(const IsolateOwner&) = delete;
