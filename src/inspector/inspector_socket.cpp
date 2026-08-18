@@ -318,6 +318,8 @@ static WsDecodeResult DecodeFrameHybi17(const std::vector<char>& buffer,
             output->push_back(K_PONG_FRAME_HEADER);
             output->push_back(static_cast<char>(payloadLength64));
             output->insert(output->end(), it, it + payloadLength64);
+            *bytesConsumed = static_cast<int>(
+                (it + K_MASKING_KEY_WIDTH_IN_BYTES + payloadLength64) - buffer.begin());
             return FRAME_PING;
         }
         case K_OP_CODE_BINARY:       // We don't support binary frames yet.
