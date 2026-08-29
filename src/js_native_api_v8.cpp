@@ -19,6 +19,7 @@
 #include <cmath>
 #include <cstring>
 #include <list>
+#include <securec.h>
 #include <sstream>
 #include <unistd.h>
 
@@ -4304,7 +4305,12 @@ JSVM_Status OH_JSVM_CreateArrayBufferFromExternalMemory(JSVM_Env env,
     // allocate inside the sandbox and copy the data.
     v8::Local<v8::ArrayBuffer> arrayBuffer = v8::ArrayBuffer::New(env->isolate, byteLength);
     if (byteLength > 0 && externalData != nullptr) {
-        memcpy_s(arrayBuffer->Data(), byteLength, externalData, byteLength);
+        errno_t ret = memcpy_s(arrayBuffer->Data(), byteLength, externalData, byteLength);
+        if (ret != EOK) {
+            LOG(Error) << "OH_JSVM_CreateArrayBufferFromExternalMemory: "
+                       << "memcpy_s failed with error " << ret;
+            return SetLastError(env, JSVM_GENERIC_FAILURE);
+        }
     }
     if (copied != nullptr) {
         *copied = true;

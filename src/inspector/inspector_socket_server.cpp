@@ -435,7 +435,8 @@ bool InspectorSocketServer::Start()
     // We will return it if startup is successful
     delegate.swap(delegateHolder);
     struct addrinfo hints;
-    memset_s(&hints, sizeof(hints), 0, sizeof(hints));
+    errno_t ret = memset_s(&hints, sizeof(hints), 0, sizeof(hints));
+    CHECK(ret == EOK);
     hints.ai_flags = AI_NUMERICSERV;
     hints.ai_socktype = SOCK_STREAM;
     uv_getaddrinfo_t req;
@@ -591,7 +592,7 @@ int ServerSocket::DetectPort(uv_loop_t* loop, int pid)
         auto unixDomainSocketPath = "jsvm_devtools_remote_" + std::to_string(port) + "_" + std::to_string(pid);
         auto* abstract = new char[unixDomainSocketPath.length() + 2];
         abstract[0] = '\0';
-        int ret = strcpy_s(abstract + 1, unixDomainSocketPath.length() + 2, unixDomainSocketPath.c_str());
+        int ret = strcpy_s(abstract + 1, unixDomainSocketPath.length() + 1, unixDomainSocketPath.c_str());
         CHECK(ret == 0);
         auto status = uv_pipe_init(loop, &unixSocket, 0);
         if (status == 0) {
