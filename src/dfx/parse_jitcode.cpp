@@ -84,6 +84,10 @@ JitSymbolVMA::JitSymbolVMA(uint32_t pid) : isCurrentProcess(static_cast<uint32_t
         return;
     }
     memorySize = endMapAddress - startMapAddress;
+    if (memorySize > SHM_SIZE) {
+        LOG(Error) << "jit symbol memory is too large!";
+        return;
+    }
     void* address = nullptr;
     if (isCurrentProcess) {
         startAddress = startMapAddress;
@@ -126,6 +130,14 @@ bool JitSymbolVMA::Contains(uintptr_t address) const
     return false;
 }
 
+bool JitSymbolVMA::ContainsRange(uintptr_t address, size_t size) const
+{
+    if (address < startAddress || address > endAddress) {
+        return false;
+    }
+    return size <= static_cast<size_t>(endAddress - address);
+}
+
 bool JitSymbolVMA::HasPrepared() const
 {
     return hasPrepared;
@@ -149,11 +161,20 @@ bool JsSymbolExtractor::IsPidMatch(uint32_t storedPid, uint32_t dfxPid) const
 
 bool JsSymbolExtractor::GetHeader(uintptr_t& memoryPointer) const
 {
-    PerfJitHeader* header = reinterpret_cast<PerfJitHeader*>(memoryPointer);
-    if (!IsPidMatch(header->process_id_, targetPid)) {
+    if (!jitSymbolVMA->ContainsRange(memoryPointer, sizeof(PerfJitHeader))) {
         return false;
     }
-    memoryPointer += header->size_;
+
+    PerfJitHeader header;
+    std::memcpy(&header, reinterpret_cast<const void*>(memoryPointer), sizeof(header));
+    if (header.magic_ != PerfJitHeader::kMagic ||
+        header.version_ != PerfJitHeader::kVersion ||
+        header.size_ != sizeof(PerfJitHeader) ||
+        !IsPidMatch(header.process_id_, targetPid) ||
+        !jitSymbolVMA->ContainsRange(memoryPointer, header.size_)) {
+        return false;
+    }
+    memoryPointer += header.size_;
     return true;
 }
 
@@ -161,36 +182,59 @@ bool JsSymbolExtractor::GetJitSymbols(uint32_t& codeID,
                                       uintptr_t& memoryPointer,
                                       std::vector<JitSymbol>& jitSymbols) const
 {
-    // Get load-header
+    // The producer writes each record as
+    // [PerfJitCodeLoad][code name bytes]['\0'], followed by JIT#END at the
+    // current end of the stream. A later record overwrites that end marker.
     while (true) {
-        if (!jitSymbolVMA->Contains(memoryPointer + sizeof(PerfJitCodeLoad))) {
-            // Some cases do not have an end tag.
+        if (jitSymbolVMA->ContainsRange(memoryPointer, sizeof(kJitCodeTerminator)) &&
+            std::memcmp(reinterpret_cast<const void*>(memoryPointer),
+                        kJitCodeTerminator, sizeof(kJitCodeTerminator)) == 0) {
+            LOG(Info) << "last jit code block";
             return true;
         }
-        PerfJitCodeLoad* codeLoad = reinterpret_cast<PerfJitCodeLoad*>(memoryPointer);
-        if (!jitSymbolVMA->Contains(memoryPointer + codeLoad->size_)) {
-            // Some cases do not have an end tag.
+
+        if (!jitSymbolVMA->ContainsRange(memoryPointer, sizeof(PerfJitCodeLoad))) {
+            // Compat: trailing bytes cannot hold a full record; keep the parsed
+            // prefix as the baseline did for "no end tag" dumps.
             return true;
         }
-        if (!IsPidMatch(codeLoad->process_id_, targetPid) || codeLoad->code_id_ != codeID) {
+
+        // Read the fixed-size record header only after confirming that the
+        // complete header is inside the mapped shared-memory range.
+        PerfJitCodeLoad codeLoad;
+        std::memcpy(&codeLoad, reinterpret_cast<const void*>(memoryPointer), sizeof(codeLoad));
+        if (codeLoad.size_ < sizeof(PerfJitCodeLoad) + sizeof(kStringTerminator)) {
+            return false;
+        }
+        if (!jitSymbolVMA->ContainsRange(memoryPointer, codeLoad.size_)) {
+            // Compat: last record declares more than remains (uncommitted tail);
+            // keep the parsed prefix instead of failing the whole dump.
+            return true;
+        }
+        if (!IsPidMatch(codeLoad.process_id_, targetPid) || codeLoad.code_id_ != codeID) {
             LOG(Error) << "codeLoad check failed!";
             return false;
         }
 
+        // code_id_ is generated monotonically by the producer. Advance the
+        // expected ID only after the complete record header has been validated.
         codeID++;
-        char* codeName = reinterpret_cast<char*>(memoryPointer + sizeof(PerfJitCodeLoad));
-        jitSymbols.emplace_back(codeLoad->code_address_, codeLoad->code_size_, codeName);
-        memoryPointer += codeLoad->size_;
 
-        char* maybeKJitCodeTerminator = reinterpret_cast<char*>(memoryPointer);
-        if (strcmp(maybeKJitCodeTerminator, kJitCodeTerminator) == 0) {
-            LOG(Info) << "last jit code block";
-            return true;
-        }
-        if (!jitSymbolVMA->Contains(memoryPointer)) {
-            LOG(Info) << "Reach max shared memory size!";
+        // The variable-size code name starts immediately after the header and
+        // must end within the remaining bytes declared by codeLoad.size_.
+        const char* codeName = reinterpret_cast<const char*>(memoryPointer + sizeof(PerfJitCodeLoad));
+        size_t codeNameCapacity = codeLoad.size_ - sizeof(PerfJitCodeLoad);
+        const void* terminator = std::memchr(codeName, '\0', codeNameCapacity);
+        if (terminator == nullptr) {
             return false;
         }
+
+        size_t codeNameLength = static_cast<const char*>(terminator) - codeName;
+        // Copy the validated name into an owned std::string; jitSymbols must not
+        // retain a pointer into the shared-memory mapping.
+        jitSymbols.emplace_back(codeLoad.code_address_, codeLoad.code_size_,
+                                std::string(codeName, codeNameLength));
+        memoryPointer += codeLoad.size_;
     }
 }
 
