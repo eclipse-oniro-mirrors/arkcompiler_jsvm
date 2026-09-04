@@ -75,6 +75,7 @@ public:
     explicit JitSymbolVMA(uint32_t pid);
     uintptr_t GetStartAddress() const;
     bool Contains(uintptr_t address) const;
+    bool ContainsRange(uintptr_t address, size_t size) const;
     bool HasPrepared() const;
     bool IsCurrentProcess() const;
     ~JitSymbolVMA();

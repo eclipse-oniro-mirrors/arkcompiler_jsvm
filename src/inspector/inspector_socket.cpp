@@ -180,7 +180,7 @@ static bool IsIPAddress(const std::string& host)
         // Parse the IPv6 address to ensure it is syntactically valid.
         char ipv6Str[INET6_ADDRSTRLEN];
         std::copy(host.begin() + 1, host.end() - 1, ipv6Str);
-        ipv6Str[host.length()] = '\0';
+        ipv6Str[host.length() - 2] = '\0';
         unsigned char ipv6[sizeof(struct in6_addr)];
         if (uv_inet_pton(AF_INET6, ipv6Str, ipv6) != 0) {
             return false;
@@ -312,7 +312,7 @@ static WsDecodeResult DecodeFrameHybi17(const std::vector<char>& buffer,
         case K_OP_CODE_TEXT:
             break;
         case K_OP_CODE_PING: {
-            if (it + payloadLength64 > buffer.end()) {
+            if (it + K_MASKING_KEY_WIDTH_IN_BYTES + payloadLength64 > buffer.end()) {
                 return FRAME_INCOMPLETE;
             }
             output->push_back(K_PONG_FRAME_HEADER);
