@@ -272,6 +272,10 @@ void SourceMap::ParseMappings(const std::string& mappings,
         if (pos < mappings.length() && mappings[pos] != ',' && mappings[pos] != ';') {
             nameIndex += DecodeVLQ(mappings, pos);
         }
+        if (sourceIndex < 0 || sourceIndex >= static_cast<int>(sources.size())) {
+            sourceMappings.emplace_back(Offset(lineNumber, columnNumber));
+            continue;
+        }
         sourceMappings.emplace_back(Offset(lineNumber, columnNumber), Offset(sourceLineNumber, sourceColumnNumber),
                                     sources[sourceIndex], nameIndex);
     }
