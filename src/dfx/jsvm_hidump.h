@@ -41,11 +41,17 @@ public:
     // Unregister the current thread's top-of-stack isolate.
     void UnregisterIsolate();
 
-    // Returns the active (top-of-stack) isolate for the given tid, or nullptr.
-    v8::Isolate* GetIsolateByTid(uint32_t tid);
+    // Does not hand out an Isolate* to callers: looks the isolate up and
+    // delivers the dump interrupt inside the same critical section, so the
+    // lookup-to-RequestInterrupt sequence cannot interleave with an
+    // UnregisterIsolate from a scope close. The caller must have obtained
+    // the output fd beforehand (outside the registry lock) and owns the fd
+    // until this returns; on failure the caller must close it.
+    bool RequestDumpInterrupt(uint32_t tid, DumpFormat format, int fd);
 
-    // Returns all active isolates with their tid.
-    std::vector<std::pair<uint32_t, v8::Isolate*>> GetAllIsolatesWithTid();
+    // Returns the tids that currently have an active isolate. The batch dump
+    // path copies only tids, never Isolate pointers, out of the lock.
+    std::vector<uint32_t> GetAllTids();
 
 private:
     IsolateRegistry() = default;
