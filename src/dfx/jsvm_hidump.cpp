@@ -55,24 +55,14 @@ void IsolateRegistry::UnregisterIsolate()
     }
 }
 
-v8::Isolate* IsolateRegistry::GetIsolateByTid(uint32_t tid)
+std::vector<uint32_t> IsolateRegistry::GetAllTids()
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = isolatesInThreads_.find(tid);
-    if (it != isolatesInThreads_.end() && !it->second.empty()) {
-        return it->second.top();
-    }
-    return nullptr;
-}
-
-std::vector<std::pair<uint32_t, v8::Isolate*>> IsolateRegistry::GetAllIsolatesWithTid()
-{
-    std::lock_guard<std::mutex> lock(mutex_);
-    std::vector<std::pair<uint32_t, v8::Isolate*>> result;
+    std::vector<uint32_t> result;
     result.reserve(isolatesInThreads_.size());
     for (auto& pair : isolatesInThreads_) {
         if (!pair.second.empty()) {
-            result.emplace_back(pair.first, pair.second.top());
+            result.emplace_back(pair.first);
         }
     }
     return result;
@@ -211,17 +201,29 @@ static void DumpSnapshotCallback(v8::Isolate* isolate, void* data)
     _exit(0);
 }
 
-// ─── DumpSnapshotAsync: dispatch TakeHeapSnapshot to the owner thread ─────────
+// ─── RequestDumpInterrupt: lookup + interrupt delivery in one critical section ─────────
+//
+// Security note: this replaces the old "GetIsolateByTid returns a raw pointer,
+// caller uses it after the lock is released" pattern. Looking the isolate up
+// and calling RequestInterrupt() must not interleave with an
+// UnregisterIsolate() from a scope close: both take mutex_, so either the
+// interrupt is fully delivered before the unregister, or the unregister has
+// already completed and the lookup here fails. The output fd is requested by
+// the caller before entering this function (outside the registry lock); on
+// lookup failure the caller keeps ownership and closes it.
 
-static int DumpSnapshotAsync(v8::Isolate* isolate, DumpFormat format, uint32_t tid)
+bool IsolateRegistry::RequestDumpInterrupt(uint32_t tid, DumpFormat format, int fd)
 {
-    int fd = RequestOutputFd(tid);
-    if (fd < 0) {
-        return fd;
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = isolatesInThreads_.find(tid);
+    if (it == isolatesInThreads_.end() || it->second.empty()) {
+        return false;
     }
-    auto* ctx = new DumpContext(isolate, tid, format, fd);
-    isolate->RequestInterrupt(DumpSnapshotCallback, ctx);
-    return 0;
+    v8::Isolate* isolate = it->second.top();
+    auto ctx = std::make_unique<DumpContext>(isolate, tid, format, fd);
+    isolate->RequestInterrupt(DumpSnapshotCallback, ctx.get());
+    ctx.release();
+    return true;
 }
 
 } // namespace jsvm
@@ -234,23 +236,30 @@ extern "C" __attribute__((visibility("default"))) int jsvm_dump_heapsnapshot(
     jsvm::DumpFormat format = static_cast<jsvm::DumpFormat>(dumpType);
 
     if (tid == 0) {
-        auto allIsolates = jsvm::IsolateRegistry::GetInstance().GetAllIsolatesWithTid();
-        if (allIsolates.empty()) {
+        auto allTids = jsvm::IsolateRegistry::GetInstance().GetAllTids();
+        if (allTids.empty()) {
             return -1;
         }
-        for (auto& [isoTid, isolate] : allIsolates) {
-            int ret = jsvm::DumpSnapshotAsync(isolate, format, isoTid);
-            if (ret != 0) {
-                return ret;
+        for (uint32_t isoTid : allTids) {
+            int fd = jsvm::RequestOutputFd(isoTid);
+            if (fd < 0) {
+                return fd;
+            }
+            if (!jsvm::IsolateRegistry::GetInstance().RequestDumpInterrupt(isoTid, format, fd)) {
+                close(fd);
+                return -1;
             }
         }
         return 0;
     }
 
-    v8::Isolate* targetIsolate =
-        jsvm::IsolateRegistry::GetInstance().GetIsolateByTid(tid);
-    if (targetIsolate == nullptr) {
+    int fd = jsvm::RequestOutputFd(tid);
+    if (fd < 0) {
+        return fd;
+    }
+    if (!jsvm::IsolateRegistry::GetInstance().RequestDumpInterrupt(tid, format, fd)) {
+        close(fd);
         return -1;
     }
-    return jsvm::DumpSnapshotAsync(targetIsolate, format, tid);
+    return 0;
 }
