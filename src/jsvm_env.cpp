@@ -20,15 +20,14 @@
 
 void JSVM_Env__::RunAndClearInterrupts()
 {
-    while (true) {
+    bool hasMessages = true;
+    while (hasMessages) {
         std::vector<Callback> messageQueueTmp {};
         {
             const std::lock_guard<std::mutex> lock(messageQueueMutex);
-            if (messageQueue.empty()) {
-                break;
-            }
             messageQueueTmp.swap(messageQueue);
         }
+        hasMessages = !messageQueueTmp.empty();
         jsvm::DebugSealHandleScope sealHandleScope(isolate);
 
         for (auto& cb : messageQueueTmp) {
