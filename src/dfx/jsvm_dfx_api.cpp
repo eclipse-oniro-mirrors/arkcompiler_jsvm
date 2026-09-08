@@ -17,6 +17,7 @@
 
 #include <cerrno>
 #include <cstring>
+#include <limits>
 
 #include "parse_jitcode.h"
 #include "securec.h"
@@ -54,18 +55,23 @@ static bool DecodeName(const std::string& name,
     }
     functionName = name.substr(0, pos);
     url = name.substr(pos + 1);
-    int32_t lineTemp = 0;
-    int32_t columnTemp = 0;
-    int decimal = 10;
+    uint64_t lineTemp = 0;
+    uint64_t columnTemp = 0;
+    constexpr uint64_t decimal = 10;
+    constexpr size_t maxInt32Digits = 10;
     auto it = url.rbegin();
     if (it == url.rend()) {
         return false;
     }
     auto CharIsNumber = [](char c) -> bool { return c >= '0' && c <= '9'; };
     if (CharIsNumber(*it)) {
-        int base = 1;
+        uint64_t base = 1;
+        size_t digitCount = 0;
         do {
-            columnTemp += base * static_cast<int32_t>(*it - '0');
+            if (++digitCount > maxInt32Digits) {
+                return false;
+            }
+            columnTemp += base * static_cast<uint64_t>(*it - '0');
             base *= decimal;
             if (++it == url.rend()) {
                 return false;
@@ -73,17 +79,25 @@ static bool DecodeName(const std::string& name,
         } while (CharIsNumber(*it));
         if (*it == ':' && ++it != url.rend() && CharIsNumber(*it)) {
             base = 1;
+            digitCount = 0;
             do {
-                lineTemp += base * static_cast<int32_t>(*it - '0');
+                if (++digitCount > maxInt32Digits) {
+                    return false;
+                }
+                lineTemp += base * static_cast<uint64_t>(*it - '0');
                 base *= decimal;
                 if (++it == url.rend()) {
                     return false;
                 }
             } while (CharIsNumber(*it));
             if (*it == ':') {
+                constexpr uint64_t maxInt32 = static_cast<uint64_t>(std::numeric_limits<int32_t>::max());
+                if (lineTemp > maxInt32 || columnTemp > maxInt32) {
+                    return false;
+                }
                 // complete get location
-                line = lineTemp;
-                column = columnTemp;
+                line = static_cast<int32_t>(lineTemp);
+                column = static_cast<int32_t>(columnTemp);
                 ++it;
                 url.erase(it.base(), url.end());
                 return true;
@@ -95,13 +109,19 @@ static bool DecodeName(const std::string& name,
 
 __attribute__((visibility("default"))) int step_jsvm(void* ctx, ReadMemFunc readMem, JsStepParam* frame)
 {
-    if (frame == nullptr || frame->fp == nullptr || readMem == nullptr) {
+    if (frame == nullptr || frame->fp == nullptr || frame->pc == nullptr || frame->sp == nullptr ||
+        readMem == nullptr) {
         return -1; // Invaild input
     }
+    const uintptr_t currentFp = *(frame->fp);
     uintptr_t preFp = 0;
-    readMem(ctx, *(frame->fp), &preFp);
+    if (!readMem(ctx, currentFp, &preFp)) {
+        return -1;
+    }
     uintptr_t prePc = 0;
-    readMem(ctx, *(frame->fp) + sizeof(void*), &prePc);
+    if (!readMem(ctx, currentFp + sizeof(void*), &prePc)) {
+        return -1;
+    }
 
     *(frame->fp) = preFp;
     *(frame->pc) = prePc;
@@ -111,6 +131,9 @@ __attribute__((visibility("default"))) int step_jsvm(void* ctx, ReadMemFunc read
 
 __attribute__((visibility("default"))) int create_jsvm_extractor(uintptr_t* extractorPtr, uint32_t pid)
 {
+    if (extractorPtr == nullptr) {
+        return -1;
+    }
     jsvm::jitparse::JsSymbolExtractor* exactor_ = new jsvm::jitparse::JsSymbolExtractor(pid);
     if (exactor_->GetParser()) {
         *extractorPtr = reinterpret_cast<uintptr_t>(exactor_);
