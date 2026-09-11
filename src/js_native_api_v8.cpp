@@ -2749,7 +2749,11 @@ JSVM_Status OH_JSVM_Equals(JSVM_Env env, JSVM_Value lhs, JSVM_Value rhs, bool* r
     v8::Local<v8::Value> b = v8impl::V8LocalValueFromJsValue(rhs);
     v8::Local<v8::Context> context = env->context();
 
-    *result = a->Equals(context, b).FromJust();
+    // Equals() may run user code (valueOf) which can throw; propagate instead
+    // of CHECK-crashing on FromJust().
+    v8::Maybe<bool> equalsMaybe = a->Equals(context, b);
+    CHECK_MAYBE_NOTHING(env, equalsMaybe, JSVM_GENERIC_FAILURE);
+    *result = equalsMaybe.FromJust();
     return GET_RETURN_STATUS(env);
 }
 
@@ -4228,8 +4232,12 @@ JSVM_Status OH_JSVM_CreateArrayBufferFromBackingStoreData(JSVM_Env env,
     CHECK_ARG(env, result);
     CHECK_ARG_NOT_ZERO(env, backingStoreSize);
     CHECK_ARG_NOT_ZERO(env, arrayBufferSize);
+    // Use subtraction-style bounds checks: `offset + arrayBufferSize` can wrap
+    // around SIZE_MAX and bypass the check, which would create an
+    // out-of-bounds ArrayBuffer over `data + offset`.
+    RETURN_STATUS_IF_FALSE(env, offset <= backingStoreSize && arrayBufferSize <= backingStoreSize - offset,
+                           JSVM_INVALID_ARG);
     void* dataPtr = static_cast<uint8_t*>(data) + offset;
-    RETURN_STATUS_IF_FALSE(env, offset + arrayBufferSize <= backingStoreSize, JSVM_INVALID_ARG);
     auto backingStore =
         v8::ArrayBuffer::NewBackingStore(dataPtr, arrayBufferSize, v8::BackingStore::EmptyDeleter, nullptr);
     v8::Local<v8::ArrayBuffer> arrayBuffer = v8::ArrayBuffer::New(env->isolate, std::move(backingStore));
@@ -4572,7 +4580,10 @@ JSVM_Status OH_JSVM_CreateDataview(JSVM_Env env,
 
     v8::Local<v8::ArrayBuffer> buffer = value.As<v8::ArrayBuffer>();
 
-    if (byteLength + byteOffset > buffer->ByteLength()) {
+    // Use subtraction-style bounds checks: `byteLength + byteOffset` can wrap
+    // around SIZE_MAX, bypass this check, and later trip an internal V8 CHECK
+    // (process termination) instead of returning a RangeError.
+    if (byteOffset > buffer->ByteLength() || byteLength > buffer->ByteLength() - byteOffset) {
         OH_JSVM_ThrowRangeError(env, "ERR_JSVM_INVALID_DATAVIEW_ARGS",
                                 "byteOffset + byteLength should be less than or "
                                 "equal to the size in bytes of the array passed in");
