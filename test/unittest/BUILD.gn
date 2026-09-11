@@ -22,7 +22,9 @@ ohos_unittest("test_jsvm") {
   sources = [
     "jsvm_utils.cpp",
     "test_jsvm.cpp",
+    "test_jsvm_stack_limit.cpp",
   ]
+  include_dirs = [ "../../src/dfx" ]
   deps = [ "../..:libjsvm" ]
   defines = []
   if (use_clang_coverage) {

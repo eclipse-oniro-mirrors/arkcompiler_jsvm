@@ -57,4 +57,8 @@ extern "C" int jsvm_parse_js_frame_info(uintptr_t pc, uintptr_t extractor, JsvmF
 // Returns: 0 on success, -1 if no isolate found, negative errno on fd error.
 extern "C" int jsvm_dump_heapsnapshot(uint32_t tid, int dumpType);
 
+extern "C" int JsvmGetStackLimit(void* vm, uintptr_t* stackLimit);
+
+extern "C" int JsvmSetStackLimit(void* vm, uintptr_t stackLimit);
+
 #endif
