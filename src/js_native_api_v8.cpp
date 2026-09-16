@@ -34,6 +34,7 @@
 #include "jsvm.h"
 #include "jsvm_compat.h"
 #include "jsvm_env.h"
+#include "jsvm_isolate_stack_limit.h"
 #include "jsvm_log.h"
 #include "jsvm_reference-inl.h"
 #include "jsvm_scope.h"
@@ -6637,4 +6638,42 @@ JSVM_EXTERN JSVM_Status OH_JSVM_ClearHeapThresholdCallback(JSVM_VM vm,
     isolate->RemoveGCPrologueCallback(OnGCWithHeapThreshold, nullptr);
 
     return JSVM_OK;
+}
+
+namespace {
+
+constexpr uintptr_t K_INTERRUPT_SENTINEL_MIN = ~uintptr_t { 0 } - 0xFFU;
+constexpr uintptr_t K_STACK_GUARD_OFFSET = sizeof(void*);
+constexpr int K_REAL_STACK_LIMIT_SLOT = 1;
+
+uintptr_t* StackGuardSlots(void* engine)
+{
+    auto base = reinterpret_cast<uintptr_t>(engine);
+    return reinterpret_cast<uintptr_t*>(base + K_STACK_GUARD_OFFSET);
+}
+
+} // namespace
+
+int JsvmIsolateGetStackLimit(void* vm, uintptr_t* stackLimit)
+{
+    if (vm == nullptr || stackLimit == nullptr) {
+        return -1;
+    }
+    uintptr_t value = StackGuardSlots(vm)[K_REAL_STACK_LIMIT_SLOT];
+    if (value == 0 || value >= K_INTERRUPT_SENTINEL_MIN) {
+        return -1;
+    }
+    *stackLimit = value;
+    return 0;
+}
+
+int JsvmIsolateSetStackLimit(void* vm, uintptr_t stackLimit)
+{
+    if (vm == nullptr || stackLimit == 0) {
+        return -1;
+    }
+    using EnginePtr = decltype(static_cast<JSVM_Env__*>(nullptr)->isolate);
+    auto* engine = static_cast<EnginePtr>(vm);
+    engine->SetStackLimit(stackLimit);
+    return 0;
 }

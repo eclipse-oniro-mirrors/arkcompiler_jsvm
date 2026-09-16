@@ -19,6 +19,7 @@
 #include <cstring>
 #include <limits>
 
+#include "jsvm_isolate_stack_limit.h"
 #include "parse_jitcode.h"
 #include "securec.h"
 
@@ -183,4 +184,14 @@ __attribute__((visibility("default"))) int jsvm_parse_js_frame_info(uintptr_t pc
     } else {
         return -1;
     }
+}
+
+__attribute__((visibility("default"))) int JsvmGetStackLimit(void* vm, uintptr_t* stackLimit)
+{
+    return JsvmIsolateGetStackLimit(vm, stackLimit);
+}
+
+__attribute__((visibility("default"))) int JsvmSetStackLimit(void* vm, uintptr_t stackLimit)
+{
+    return JsvmIsolateSetStackLimit(vm, stackLimit);
 }
