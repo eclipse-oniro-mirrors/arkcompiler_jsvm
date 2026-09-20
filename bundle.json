@@ -34,6 +34,7 @@
                 "nghttp2",
                 "openssl",
                 "resource_schedule_service",
+                "samgr",
                 "zlib",
                 "faultloggerd"
             ]
