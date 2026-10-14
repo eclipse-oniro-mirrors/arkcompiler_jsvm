@@ -208,6 +208,7 @@ action("build_libjsvm") {
     "openssl:libcrypto_shared",
     "openssl:libssl_shared",
     "resource_schedule_service:ressched_client",
+    "samgr:samgr_proxy",
     "faultloggerd:dfx_signalhandler",
     "faultloggerd:libfaultloggerd",
   ]

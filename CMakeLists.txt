@@ -57,13 +57,10 @@ include_directories(jsvm
   "interface/kits"
 )
 
-# TODO: samgr:samgr_proxy module, indirect dependencies cannot be passed
-if (DEPENDENCY_TAG STREQUAL "default")
+# samgr:samgr_proxy header, need by res_sched_client.h (SystemAbilityStatusChangesStub)
 include_directories(jsvm
   "../../foundation/systemabilitymgr/samgr/interfaces/innerkits/samgr_proxy/include"
 )
-endif()
-
 # 设置源文件
 set (jsvm_sources
   "src/js_native_api_v8.cpp"
