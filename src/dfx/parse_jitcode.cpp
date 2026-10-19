@@ -240,7 +240,7 @@ bool JsSymbolExtractor::GetJitSymbols(uint32_t& codeID,
 
 JsSymbolExtractor::JsSymbolExtractor(uint32_t pid) : targetPid(pid)
 {
-    jitSymbolVMA = new JitSymbolVMA(pid);
+    jitSymbolVMA = std::make_unique<JitSymbolVMA>(pid);
     if (!jitSymbolVMA->HasPrepared()) {
         return;
     }

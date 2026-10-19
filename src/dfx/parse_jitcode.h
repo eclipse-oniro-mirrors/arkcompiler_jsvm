@@ -92,12 +92,10 @@ class JsSymbolExtractor {
 public:
     explicit JsSymbolExtractor(uint32_t pid);
 
-    ~JsSymbolExtractor();
-
     bool GetHeader(uintptr_t& memoryPointer) const;
     bool GetJitSymbols(uint32_t& codeID, uintptr_t& memoryPointer, std::vector<JitSymbol>& jitSymbols) const;
 
-    std::unique_ptr<ELFParser> GetParser() const;
+    ELFParser* GetParser() const;
 
     bool GetInstruction(uintptr_t pc, std::string& codeName) const;
     bool GetInstruction(uintptr_t pc, std::string& codeName, uint32_t& offset) const;
