@@ -20,6 +20,7 @@
 #include <memory>
 #include <sys/wait.h>
 
+#include "jsvm_dfx.h"
 #include "jsvm_log.h"
 #include "platform/platform.h"
 #include "v8-profiler.h"
@@ -66,6 +67,82 @@ std::vector<uint32_t> IsolateRegistry::GetAllTids()
         }
     }
     return result;
+}
+
+// ─── RequestGc: low-memory GC request ───────────────────────────────────────
+
+static void LowMemoryNotificationAll(const std::vector<v8::Isolate*>& isolates)
+{
+    for (v8::Isolate* isolate : isolates) {
+        // Only the top-of-stack isolate is the thread's current isolate; V8
+        // collects an isolate only as the calling thread's current isolate,
+        // so enter each target for the duration of its GC.
+        v8::Isolate::Scope isolateScope(isolate);
+        isolate->LowMemoryNotification();
+    }
+}
+
+// Runs on the isolate owner's thread at its next interrupt check, where every
+// scope it opened (and every isolate snapshotted with it) is still alive.
+static void GcInterruptCallback(v8::Isolate* isolate, void* data)
+{
+    std::unique_ptr<std::vector<v8::Isolate*>> isolates(
+        static_cast<std::vector<v8::Isolate*>*>(data));
+    // V8 runs the callback on the owner thread with the interrupt target as
+    // the current isolate; a mismatch is a context anomaly, not a repairable
+    // situation — fail fast instead of GC'ing a foreign isolate.
+    CHECK(v8::Isolate::TryGetCurrent() == isolate);
+    LowMemoryNotificationAll(*isolates);
+}
+
+std::vector<v8::Isolate*> IsolateRegistry::SnapshotIsolatesLocked(uint32_t tid)
+{
+    std::vector<v8::Isolate*> isolates;
+    auto it = isolatesInThreads_.find(tid);
+    if (it == isolatesInThreads_.end() || it->second.empty()) {
+        return isolates;
+    }
+    std::stack<v8::Isolate*> tempStack = it->second;
+    while (!tempStack.empty()) {
+        isolates.push_back(tempStack.top());
+        tempStack.pop();
+    }
+    return isolates;
+}
+
+bool IsolateRegistry::RequestGc(uint32_t tid)
+{
+    // Own thread: the isolate stack is only mutated by the thread itself, so
+    // the snapshot stays valid and the (potentially long) GC runs outside the
+    // lock.
+    if (tid == static_cast<uint32_t>(platform::OS::GetTid())) {
+        std::vector<v8::Isolate*> isolates;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            isolates = SnapshotIsolatesLocked(tid);
+        }
+        if (isolates.empty()) {
+            return false;
+        }
+        LowMemoryNotificationAll(isolates);
+        return true;
+    }
+
+    // Another thread: V8 requires the GC to run on the isolate's owner thread,
+    // so the request is delivered via RequestInterrupt and the GC executes at
+    // the owner's next JS safepoint (same delivery model as
+    // RequestDumpInterrupt). Snapshot and delivery share one critical section,
+    // so the Isolate* cannot race with an UnregisterIsolate. Only the
+    // top-of-stack isolate (snapshot front) can be executing JS, so only it
+    // has an interrupt check point to receive the request.
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<v8::Isolate*> isolates = SnapshotIsolatesLocked(tid);
+    if (isolates.empty()) {
+        return false;
+    }
+    auto pending = std::make_unique<std::vector<v8::Isolate*>>(std::move(isolates));
+    pending->front()->RequestInterrupt(GcInterruptCallback, pending.release());
+    return true;
 }
 
 // ─── FdOutputStream ─────────────────────────────────────────────────────────
