@@ -53,11 +53,28 @@ public:
     // path copies only tids, never Isolate pointers, out of the lock.
     std::vector<uint32_t> GetAllTids();
 
+    // Requests a low-memory GC (LowMemoryNotification) for every isolate
+    // registered for the given tid (including non-top-of-stack ones). The
+    // request is best-effort: the actual collection is decided by V8 and is
+    // not guaranteed.
+    // For the calling thread's own isolates the GC runs synchronously.
+    // For another thread's isolates V8 requires the GC to run on the owner
+    // thread: the request is delivered via RequestInterrupt in the same
+    // critical section as the lookup (it cannot race with an
+    // UnregisterIsolate), and the GC executes at the owner's next JS
+    // safepoint.
+    // Returns: true if an isolate was found for the tid, false otherwise.
+    bool RequestGc(uint32_t tid);
+
 private:
     IsolateRegistry() = default;
     ~IsolateRegistry() = default;
     IsolateRegistry(const IsolateRegistry&) = delete;
     IsolateRegistry& operator=(const IsolateRegistry&) = delete;
+
+    // Caller must hold mutex_. Returns the isolate stack registered for the
+    // tid, top-of-stack first; empty if no isolate is registered for it.
+    std::vector<v8::Isolate*> SnapshotIsolatesLocked(uint32_t tid);
 
     std::mutex mutex_;
     // Per-thread stack of isolates, top = active isolate

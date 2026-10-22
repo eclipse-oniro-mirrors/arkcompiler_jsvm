@@ -13,6 +13,7 @@
  * limitations under the License.
  */
 
+#include <atomic>
 #include <chrono>
 #include <csetjmp>
 #include <csignal>
@@ -21,13 +22,16 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <sys/syscall.h>
 #include <thread>
+#include <unistd.h>
 #include <vector>
 
 #define JSVM_EXPERIMENTAL
 #include "jsvm.h"
 #include "jsvm_types.h"
 #include "jsvm_utils.h"
+#include "jsvm_dfx_api.h"
 
 #define JSVM_PARENT_CLASS_DES_COUNT 2
 #define JSVM_OBJECT_INTERFAIELD_COUNT 3
@@ -1169,6 +1173,27 @@ static bool g_afterFlag2 = false;
 static bool g_afterFlag3 = false;
 static int g_nativeValue = 2024;
 
+static bool g_gcTriggeredFlag = false;
+static bool g_gcTriggeredFlag2 = false;
+static std::atomic<bool> g_gcTriggeredFlag3 = false;
+static std::atomic<int> g_gcTriggeredCount = 0;
+
+static void OnGCTriggered(JSVM_VM vm, JSVM_GCType gcType, JSVM_GCCallbackFlags flags, void* data)
+{
+    g_gcTriggeredFlag = true;
+}
+
+static void OnGCTriggered2(JSVM_VM vm, JSVM_GCType gcType, JSVM_GCCallbackFlags flags, void* data)
+{
+    g_gcTriggeredFlag2 = true;
+}
+
+static void OnGCTriggered3(JSVM_VM vm, JSVM_GCType gcType, JSVM_GCCallbackFlags flags, void* data)
+{
+    g_gcTriggeredFlag3 = true;
+    g_gcTriggeredCount.fetch_add(1);
+}
+
 void OnBeforeGC(JSVM_VM vm, JSVM_GCType gcType, JSVM_GCCallbackFlags flags, void* data)
 {
     g_beforeFlag1 = true;
@@ -1743,6 +1768,10 @@ HWTEST_F(JSVMTest, test_set_debug_option2, TestSize.Level1)
         fataled = true;
         OH_JSVM_IsBoolean(env, result, &boolValue);
     }
+    // Restore the default handler: a later, unexpected abort must terminate
+    // the process (with a proper crash log) instead of longjmp() into this
+    // already-finished test frame.
+    signal(SIGABRT, SIG_DFL);
     auto status2 = OH_JSVM_SetDebugOption(env, JSVM_SCOPE_CHECK, false);
     ASSERT_TRUE(status2 == JSVM_OK);
     ASSERT_TRUE(g_fatalErrorFinished);
@@ -2730,4 +2759,341 @@ HWTEST_F(JSVMTest, JSVMHeapThresholdAddCallbackWithOutRemove, TestSize.Level1)
 
     EXPECT_TRUE(g_heapThresholdCallbackCalled);
     EXPECT_TRUE(g_syncSnapshotFinished);
+}
+
+HWTEST_F(JSVMTest, RequestGarbageCollection, TestSize.Level1)
+{
+    g_gcTriggeredFlag = false;
+    JSVMTEST_CALL(OH_JSVM_AddHandlerForGC(vm, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered, JSVM_GC_TYPE_ALL, nullptr));
+    ASSERT_EQ(JsvmRequestGc(0), 0);
+    ASSERT_TRUE(g_gcTriggeredFlag);
+    JSVMTEST_CALL(OH_JSVM_RemoveHandlerForGC(vm, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered, nullptr));
+}
+
+HWTEST_F(JSVMTest, RequestGarbageCollectionForProcess, TestSize.Level1)
+{
+    JSVM_VM vm2 = nullptr;
+    JSVM_VMScope vmScope2 = nullptr;
+    JSVMTEST_CALL(OH_JSVM_CreateVM(nullptr, &vm2));
+    JSVMTEST_CALL(OH_JSVM_OpenVMScope(vm2, &vmScope2));
+
+    g_gcTriggeredFlag = false;
+    g_gcTriggeredFlag2 = false;
+    JSVMTEST_CALL(OH_JSVM_AddHandlerForGC(vm, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered, JSVM_GC_TYPE_ALL, nullptr));
+    JSVMTEST_CALL(OH_JSVM_AddHandlerForGC(vm2, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered2, JSVM_GC_TYPE_ALL, nullptr));
+
+    ASSERT_EQ(JsvmRequestGc(0), 0);
+
+    ASSERT_TRUE(g_gcTriggeredFlag);
+    ASSERT_TRUE(g_gcTriggeredFlag2);
+
+    JSVMTEST_CALL(OH_JSVM_RemoveHandlerForGC(vm, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered, nullptr));
+    JSVMTEST_CALL(OH_JSVM_RemoveHandlerForGC(vm2, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered2, nullptr));
+    JSVMTEST_CALL(OH_JSVM_CloseVMScope(vm2, vmScope2));
+    JSVMTEST_CALL(OH_JSVM_DestroyVM(vm2));
+}
+
+HWTEST_F(JSVMTest, RequestGarbageCollectionByTid, TestSize.Level1)
+{
+    g_gcTriggeredFlag = false;
+    JSVMTEST_CALL(OH_JSVM_AddHandlerForGC(vm, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered, JSVM_GC_TYPE_ALL, nullptr));
+
+    uint32_t currentTid = static_cast<uint32_t>(syscall(SYS_gettid));
+    int ret = JsvmRequestGc(currentTid);
+    ASSERT_EQ(ret, 0);
+    ASSERT_TRUE(g_gcTriggeredFlag);
+
+    JSVMTEST_CALL(OH_JSVM_RemoveHandlerForGC(vm, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered, nullptr));
+}
+
+HWTEST_F(JSVMTest, RequestGarbageCollectionInvalidTid, TestSize.Level1)
+{
+    uint32_t invalidTid = 0xFFFFFFFF;
+    int ret = JsvmRequestGc(invalidTid);
+    ASSERT_EQ(ret, -1);
+}
+
+// Fixture that never creates a VM: the process isolate registry stays empty,
+// which is exactly the precondition AC-1.2 (global mode with no VM) needs.
+class JSVMGcNoVmTest : public testing::Test {
+public:
+    static void SetUpTestCase()
+    {
+        JSVM_InitOptions init_options {};
+        OH_JSVM_Init(&init_options);
+    }
+
+    static void TearDownTestCase() {}
+};
+
+HWTEST_F(JSVMGcNoVmTest, RequestGarbageCollectionNoVm, TestSize.Level1)
+{
+    ASSERT_EQ(JsvmRequestGc(0), 0);
+}
+
+static void RunGcWorker(std::atomic<bool>& vmReady, std::atomic<uint32_t>& workerTid)
+{
+    JSVM_VM vm2 = nullptr;
+    JSVM_VMScope vmScope2 = nullptr;
+    JSVM_Env env2 = nullptr;
+    JSVM_EnvScope envScope2 = nullptr;
+    JSVM_HandleScope handleScope2 = nullptr;
+    bool ok = OH_JSVM_CreateVM(nullptr, &vm2) == JSVM_OK &&
+              OH_JSVM_OpenVMScope(vm2, &vmScope2) == JSVM_OK &&
+              OH_JSVM_CreateEnv(vm2, 0, nullptr, &env2) == JSVM_OK &&
+              OH_JSVM_OpenEnvScope(env2, &envScope2) == JSVM_OK &&
+              OH_JSVM_OpenHandleScope(env2, &handleScope2) == JSVM_OK &&
+              OH_JSVM_AddHandlerForGC(vm2, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered3,
+                                      JSVM_GC_TYPE_ALL, nullptr) == JSVM_OK;
+    if (ok) {
+        workerTid = static_cast<uint32_t>(syscall(SYS_gettid));
+    }
+    vmReady = true;
+    if (ok) {
+        // Spin in JS so the delivered interrupt fires at a loop back-edge.
+        const char* src = "const start = Date.now(); while (Date.now() - start < 3000) {}";
+        JSVM_Value jsSrc = nullptr;
+        JSVM_Script script = nullptr;
+        JSVM_Value result = nullptr;
+        if (OH_JSVM_CreateStringUtf8(env2, src, strlen(src), &jsSrc) == JSVM_OK &&
+            OH_JSVM_CompileScript(env2, jsSrc, nullptr, 0, true, nullptr, &script) == JSVM_OK) {
+            OH_JSVM_RunScript(env2, script, &result);
+        }
+        OH_JSVM_RemoveHandlerForGC(vm2, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered3, nullptr);
+        OH_JSVM_CloseHandleScope(env2, handleScope2);
+        OH_JSVM_CloseEnvScope(env2, envScope2);
+        OH_JSVM_DestroyEnv(env2);
+    }
+    if (vmScope2 != nullptr) {
+        OH_JSVM_CloseVMScope(vm2, vmScope2);
+    }
+    if (vm2 != nullptr) {
+        OH_JSVM_DestroyVM(vm2);
+    }
+}
+
+static bool WaitForFlag(std::atomic<bool>& flag, uint32_t timeoutMs)
+{
+    constexpr uint32_t pollIntervalMs = 10;
+    for (uint32_t waited = 0; waited < timeoutMs; waited += pollIntervalMs) {
+        if (flag.load()) {
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(pollIntervalMs));
+    }
+    return flag.load();
+}
+
+// Cross-thread scenario: the caller is NOT the isolate owner thread. V8
+// requires the GC to run on the owner thread, so JsvmRequestGc delivers the
+// request via interrupt and the GC executes while the owner executes JS.
+HWTEST_F(JSVMTest, RequestGarbageCollectionByTidOnOtherThread, TestSize.Level1)
+{
+    constexpr uint32_t vmReadyTimeoutMs = 10000;
+    constexpr uint32_t gcFlagTimeoutMs = 5000;
+    std::atomic<bool> vmReady = false;
+    std::atomic<uint32_t> workerTid = 0;
+    g_gcTriggeredFlag = false;
+    g_gcTriggeredFlag3 = false;
+
+    // Register a handler on this thread's own VM as well: it must stay
+    // untouched when only the worker tid is targeted (no JS executes on the
+    // fixture VM during this test, so the flag cannot be set otherwise).
+    JSVMTEST_CALL(OH_JSVM_AddHandlerForGC(vm, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered,
+                                          JSVM_GC_TYPE_ALL, nullptr));
+    std::thread worker([&vmReady, &workerTid]() { RunGcWorker(vmReady, workerTid); });
+    EXPECT_TRUE(WaitForFlag(vmReady, vmReadyTimeoutMs));
+    uint32_t tid = workerTid.load();
+    int ret = (tid != 0) ? JsvmRequestGc(tid) : -1;
+
+    // The GC executes on the worker thread at its next JS safepoint.
+    bool gcSeen = WaitForFlag(g_gcTriggeredFlag3, gcFlagTimeoutMs);
+    worker.join();
+    JSVMTEST_CALL(OH_JSVM_RemoveHandlerForGC(vm, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered, nullptr));
+
+    EXPECT_NE(tid, 0u);
+    EXPECT_EQ(ret, 0);
+    EXPECT_TRUE(gcSeen);
+    EXPECT_FALSE(g_gcTriggeredFlag);
+}
+
+HWTEST_F(JSVMTest, RequestGarbageCollectionForProcessWithOtherThread, TestSize.Level1)
+{
+    std::atomic<bool> vmReady = false;
+    std::atomic<uint32_t> workerTid = 0;
+    g_gcTriggeredFlag = false;
+    g_gcTriggeredFlag3 = false;
+
+    JSVMTEST_CALL(OH_JSVM_AddHandlerForGC(vm, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered,
+                                          JSVM_GC_TYPE_ALL, nullptr));
+    std::thread worker([&vmReady, &workerTid]() { RunGcWorker(vmReady, workerTid); });
+    EXPECT_TRUE(WaitForFlag(vmReady, 10000));
+    uint32_t tid = workerTid.load();
+
+    int ret = JsvmRequestGc(0);
+    bool mainFlag = g_gcTriggeredFlag; /* own-thread part: done before return */
+    bool workerSeen = WaitForFlag(g_gcTriggeredFlag3, 5000);
+    worker.join();
+    JSVMTEST_CALL(OH_JSVM_RemoveHandlerForGC(vm, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered, nullptr));
+
+    EXPECT_NE(tid, 0u);
+    EXPECT_EQ(ret, 0);
+    EXPECT_TRUE(mainFlag);
+    EXPECT_TRUE(workerSeen);
+}
+
+// Caller thread body for the concurrent-calls case: hammers the global
+// mode and counts failed returns.
+static void RunConcurrentGcCaller(int callCount, std::atomic<int>& failures)
+{
+    for (int i = 0; i < callCount; i++) {
+        if (JsvmRequestGc(0) != 0) {
+            failures.fetch_add(1);
+        }
+    }
+}
+
+// Concurrent callers are safe (registry mutex) and the request is still
+// delivered to a worker that is executing JS.
+HWTEST_F(JSVMTest, RequestGarbageCollectionConcurrentCalls, TestSize.Level1)
+{
+    constexpr int callerCount = 4;
+    constexpr int callsPerCaller = 5;
+    std::atomic<bool> vmReady = false;
+    std::atomic<uint32_t> workerTid = 0;
+    std::atomic<int> failures = 0;
+    g_gcTriggeredFlag3 = false;
+
+    std::thread worker([&vmReady, &workerTid]() { RunGcWorker(vmReady, workerTid); });
+    EXPECT_TRUE(WaitForFlag(vmReady, 10000));
+    uint32_t tid = workerTid.load();
+
+    std::vector<std::thread> callers;
+    for (int i = 0; i < callerCount; i++) {
+        callers.emplace_back([&failures]() { RunConcurrentGcCaller(callsPerCaller, failures); });
+    }
+    for (auto& caller : callers) {
+        caller.join();
+    }
+
+    bool gcSeen = WaitForFlag(g_gcTriggeredFlag3, 5000);
+    worker.join();
+
+    EXPECT_NE(tid, 0u);
+    EXPECT_EQ(failures.load(), 0);
+    EXPECT_TRUE(gcSeen);
+}
+
+// Repeated requests while earlier GCs may still be executing are safe;
+// deliveries run serially at the target's JS safepoints.
+HWTEST_F(JSVMTest, RequestGarbageCollectionRepeatedCalls, TestSize.Level1)
+{
+    constexpr int repeatCount = 10;
+    constexpr int callIntervalMs = 20;
+    std::atomic<bool> vmReady = false;
+    std::atomic<uint32_t> workerTid = 0;
+    g_gcTriggeredFlag3 = false;
+    g_gcTriggeredCount = 0;
+
+    std::thread worker([&vmReady, &workerTid]() { RunGcWorker(vmReady, workerTid); });
+    EXPECT_TRUE(WaitForFlag(vmReady, 10000));
+    uint32_t tid = workerTid.load();
+
+    bool allOk = true;
+    for (int i = 0; i < repeatCount; i++) {
+        allOk = allOk && (JsvmRequestGc(tid) == 0);
+        std::this_thread::sleep_for(std::chrono::milliseconds(callIntervalMs));
+    }
+
+    bool gcSeen = WaitForFlag(g_gcTriggeredFlag3, 5000);
+    worker.join();
+
+    EXPECT_NE(tid, 0u);
+    EXPECT_TRUE(allOk);
+    EXPECT_TRUE(gcSeen);
+    EXPECT_GE(g_gcTriggeredCount.load(), 1);
+}
+
+// The idle phase must be far longer than the defer-check window below.
+static constexpr uint32_t K_GC_IDLE_PHASE_MS = 2000;
+static constexpr uint32_t K_GC_DEFER_CHECK_MS = 400;
+
+// Idles in native code first (no JS execution), then runs JS so that a
+// request delivered during the idle phase fires at a JS safepoint.
+static void RunGcIdleWakeWorker(std::atomic<bool>& vmReady, std::atomic<uint32_t>& workerTid,
+                                std::atomic<bool>& jsStarted)
+{
+    JSVM_VM vm2 = nullptr;
+    JSVM_VMScope vmScope2 = nullptr;
+    JSVM_Env env2 = nullptr;
+    JSVM_EnvScope envScope2 = nullptr;
+    JSVM_HandleScope handleScope2 = nullptr;
+    bool ok = OH_JSVM_CreateVM(nullptr, &vm2) == JSVM_OK &&
+              OH_JSVM_OpenVMScope(vm2, &vmScope2) == JSVM_OK &&
+              OH_JSVM_CreateEnv(vm2, 0, nullptr, &env2) == JSVM_OK &&
+              OH_JSVM_OpenEnvScope(env2, &envScope2) == JSVM_OK &&
+              OH_JSVM_OpenHandleScope(env2, &handleScope2) == JSVM_OK &&
+              OH_JSVM_AddHandlerForGC(vm2, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered3,
+                                      JSVM_GC_TYPE_ALL, nullptr) == JSVM_OK;
+    if (ok) {
+        workerTid = static_cast<uint32_t>(syscall(SYS_gettid));
+    }
+    vmReady = true;
+    if (ok) {
+        // Idle in native code: the isolate never executes JS in this phase,
+        // so a delivered request stays pending.
+        std::this_thread::sleep_for(std::chrono::milliseconds(K_GC_IDLE_PHASE_MS));
+        jsStarted = true;
+        // Wake up: the pending request fires at the first JS safepoint.
+        const char* src = "const t0 = Date.now(); while (Date.now() - t0 < 2000) {}";
+        JSVM_Value jsSrc = nullptr;
+        JSVM_Script script = nullptr;
+        JSVM_Value result = nullptr;
+        if (OH_JSVM_CreateStringUtf8(env2, src, strlen(src), &jsSrc) == JSVM_OK &&
+            OH_JSVM_CompileScript(env2, jsSrc, nullptr, 0, true, nullptr, &script) == JSVM_OK) {
+            OH_JSVM_RunScript(env2, script, &result);
+        }
+        OH_JSVM_RemoveHandlerForGC(vm2, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered3, nullptr);
+        OH_JSVM_CloseHandleScope(env2, handleScope2);
+        OH_JSVM_CloseEnvScope(env2, envScope2);
+        OH_JSVM_DestroyEnv(env2);
+    }
+    if (vmScope2 != nullptr) {
+        OH_JSVM_CloseVMScope(vm2, vmScope2);
+    }
+    if (vm2 != nullptr) {
+        OH_JSVM_DestroyVM(vm2);
+    }
+}
+
+// A request for an idle (native-blocked) worker returns 0 immediately and
+// stays pending; it executes once the worker runs JS again.
+HWTEST_F(JSVMTest, RequestGarbageCollectionIdleWorker, TestSize.Level1)
+{
+    std::atomic<bool> vmReady = false;
+    std::atomic<bool> jsStarted = false;
+    std::atomic<uint32_t> workerTid = 0;
+    g_gcTriggeredFlag3 = false;
+
+    std::thread worker([&vmReady, &jsStarted, &workerTid]() {
+        RunGcIdleWakeWorker(vmReady, workerTid, jsStarted);
+    });
+    EXPECT_TRUE(WaitForFlag(vmReady, 10000));
+    uint32_t tid = workerTid.load();
+    int ret = (tid != 0) ? JsvmRequestGc(tid) : -1;
+
+    // Deferred: the worker executes no JS yet, so the flag must stay unset.
+    // The check window is far shorter than the worker's idle phase.
+    bool deliveredEarly = WaitForFlag(g_gcTriggeredFlag3, K_GC_DEFER_CHECK_MS);
+    EXPECT_FALSE(deliveredEarly);
+
+    // Wake-up delivery: once the worker runs JS, the pending request fires.
+    bool started = WaitForFlag(jsStarted, 10000);
+    bool gcSeen = WaitForFlag(g_gcTriggeredFlag3, 5000);
+    worker.join();
+
+    EXPECT_NE(tid, 0u);
+    EXPECT_EQ(ret, 0);
+    EXPECT_TRUE(started);
+    EXPECT_TRUE(gcSeen);
 }

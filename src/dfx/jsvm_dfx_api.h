@@ -61,4 +61,15 @@ extern "C" int JsvmGetStackLimit(void* vm, uintptr_t* stackLimit);
 
 extern "C" int JsvmSetStackLimit(void* vm, uintptr_t stackLimit);
 
+// JsvmRequestGc: Request GC for specified thread or all threads.
+// Called from any thread (typically the main/hidump thread).
+// Parameters:
+//   tid:      0 = trigger GC for all JSVM instances; >0 = trigger GC for specific tid
+// Returns: 0 on success, -1 if tid > 0 and no VM exists for that thread.
+// Note: this only issues a low-memory GC request — the actual collection is
+// ultimately decided by V8 (best-effort) and is not guaranteed. Isolates on
+// the calling thread are collected synchronously; isolates owned by other
+// threads execute the GC at their next JS safepoint.
+extern "C" int JsvmRequestGc(uint32_t tid);
+
 #endif

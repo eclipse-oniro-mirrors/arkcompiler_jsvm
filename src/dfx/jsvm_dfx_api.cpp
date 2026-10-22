@@ -19,6 +19,9 @@
 #include <cstring>
 #include <limits>
 
+#include "js_native_api_v8.h"
+#include "jsvm_api_enter.h"
+#include "dfx/jsvm_hidump.h"
 #include "jsvm_isolate_stack_limit.h"
 #include "parse_jitcode.h"
 #include "securec.h"
@@ -194,4 +197,20 @@ __attribute__((visibility("default"))) int JsvmGetStackLimit(void* vm, uintptr_t
 __attribute__((visibility("default"))) int JsvmSetStackLimit(void* vm, uintptr_t stackLimit)
 {
     return JsvmIsolateSetStackLimit(vm, stackLimit);
+}
+
+__attribute__((visibility("default"))) int JsvmRequestGc(uint32_t tid)
+{
+    JSVM_API_ENTER_GLOBAL(K_JSVM_ACCESS_V8_GLOBAL);
+    if (tid == 0) {
+        auto allTids = jsvm::IsolateRegistry::GetInstance().GetAllTids();
+        for (uint32_t isoTid : allTids) {
+            jsvm::IsolateRegistry::GetInstance().RequestGc(isoTid);
+        }
+        return 0;
+    }
+    if (!jsvm::IsolateRegistry::GetInstance().RequestGc(tid)) {
+        return -1;
+    }
+    return 0;
 }
