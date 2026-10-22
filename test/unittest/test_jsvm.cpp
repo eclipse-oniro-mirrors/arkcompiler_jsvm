@@ -18,6 +18,7 @@
 #include <csetjmp>
 #include <csignal>
 #include <cstring>
+#include <dlfcn.h>
 #include <deque>
 #include <fstream>
 #include <iostream>
@@ -1174,9 +1175,11 @@ static bool g_afterFlag3 = false;
 static int g_nativeValue = 2024;
 
 static bool g_gcTriggeredFlag = false;
-static bool g_gcTriggeredFlag2 = false;
+static std::atomic<bool> g_gcTriggeredFlag2 = false; // set/read across threads
 static std::atomic<bool> g_gcTriggeredFlag3 = false;
 static std::atomic<int> g_gcTriggeredCount = 0;
+static std::atomic<bool> g_gcFinalizeFlag = false;
+static std::atomic<bool> g_gcFinalizeAfterBeforeGc = false;
 
 static void OnGCTriggered(JSVM_VM vm, JSVM_GCType gcType, JSVM_GCCallbackFlags flags, void* data)
 {
@@ -1192,6 +1195,16 @@ static void OnGCTriggered3(JSVM_VM vm, JSVM_GCType gcType, JSVM_GCCallbackFlags 
 {
     g_gcTriggeredFlag3 = true;
     g_gcTriggeredCount.fetch_add(1);
+}
+
+static void OnFinalize(JSVM_Env env, void* finalizeData, void* finalizeHint)
+{
+    (void)env;
+    (void)finalizeData;
+    (void)finalizeHint;
+    // The BEFORE_GC prologue must have run before the object is finalized.
+    g_gcFinalizeAfterBeforeGc = g_gcTriggeredFlag;
+    g_gcFinalizeFlag = true;
 }
 
 void OnBeforeGC(JSVM_VM vm, JSVM_GCType gcType, JSVM_GCCallbackFlags flags, void* data)
@@ -2813,8 +2826,6 @@ HWTEST_F(JSVMTest, RequestGarbageCollectionInvalidTid, TestSize.Level1)
     ASSERT_EQ(ret, -1);
 }
 
-// Fixture that never creates a VM: the process isolate registry stays empty,
-// which is exactly the precondition AC-1.2 (global mode with no VM) needs.
 class JSVMGcNoVmTest : public testing::Test {
 public:
     static void SetUpTestCase()
@@ -2828,7 +2839,10 @@ public:
 
 HWTEST_F(JSVMGcNoVmTest, RequestGarbageCollectionNoVm, TestSize.Level1)
 {
-    ASSERT_EQ(JsvmRequestGc(0), 0);
+    constexpr int callCount = 100;
+    for (int i = 0; i < callCount; i++) {
+        ASSERT_EQ(JsvmRequestGc(0), 0);
+    }
 }
 
 static void RunGcWorker(std::atomic<bool>& vmReady, std::atomic<uint32_t>& workerTid)
@@ -2884,9 +2898,6 @@ static bool WaitForFlag(std::atomic<bool>& flag, uint32_t timeoutMs)
     return flag.load();
 }
 
-// Cross-thread scenario: the caller is NOT the isolate owner thread. V8
-// requires the GC to run on the owner thread, so JsvmRequestGc delivers the
-// request via interrupt and the GC executes while the owner executes JS.
 HWTEST_F(JSVMTest, RequestGarbageCollectionByTidOnOtherThread, TestSize.Level1)
 {
     constexpr uint32_t vmReadyTimeoutMs = 10000;
@@ -2896,9 +2907,6 @@ HWTEST_F(JSVMTest, RequestGarbageCollectionByTidOnOtherThread, TestSize.Level1)
     g_gcTriggeredFlag = false;
     g_gcTriggeredFlag3 = false;
 
-    // Register a handler on this thread's own VM as well: it must stay
-    // untouched when only the worker tid is targeted (no JS executes on the
-    // fixture VM during this test, so the flag cannot be set otherwise).
     JSVMTEST_CALL(OH_JSVM_AddHandlerForGC(vm, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered,
                                           JSVM_GC_TYPE_ALL, nullptr));
     std::thread worker([&vmReady, &workerTid]() { RunGcWorker(vmReady, workerTid); });
@@ -2958,7 +2966,7 @@ static void RunConcurrentGcCaller(int callCount, std::atomic<int>& failures)
 HWTEST_F(JSVMTest, RequestGarbageCollectionConcurrentCalls, TestSize.Level1)
 {
     constexpr int callerCount = 4;
-    constexpr int callsPerCaller = 5;
+    constexpr int callsPerCaller = 50;
     std::atomic<bool> vmReady = false;
     std::atomic<uint32_t> workerTid = 0;
     std::atomic<int> failures = 0;
@@ -3096,4 +3104,324 @@ HWTEST_F(JSVMTest, RequestGarbageCollectionIdleWorker, TestSize.Level1)
     EXPECT_EQ(ret, 0);
     EXPECT_TRUE(started);
     EXPECT_TRUE(gcSeen);
+}
+
+HWTEST_F(JSVMTest, RequestGarbageCollectionByTidNestedVms, TestSize.Level1)
+{
+    JSVM_VM vm2 = nullptr;
+    JSVM_VMScope vmScope2 = nullptr;
+    JSVM_VM vm3 = nullptr;
+    JSVM_VMScope vmScope3 = nullptr;
+    g_gcTriggeredFlag = false;
+    g_gcTriggeredFlag2 = false;
+    g_gcTriggeredFlag3 = false;
+    JSVMTEST_CALL(OH_JSVM_AddHandlerForGC(vm, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered,
+                                          JSVM_GC_TYPE_ALL, nullptr));
+
+    JSVMTEST_CALL(OH_JSVM_CreateVM(nullptr, &vm2));
+    JSVMTEST_CALL(OH_JSVM_OpenVMScope(vm2, &vmScope2));
+    JSVMTEST_CALL(OH_JSVM_AddHandlerForGC(vm2, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered2,
+                                          JSVM_GC_TYPE_ALL, nullptr));
+    JSVMTEST_CALL(OH_JSVM_CreateVM(nullptr, &vm3));
+    JSVMTEST_CALL(OH_JSVM_OpenVMScope(vm3, &vmScope3));
+    JSVMTEST_CALL(OH_JSVM_AddHandlerForGC(vm3, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered3,
+                                          JSVM_GC_TYPE_ALL, nullptr));
+    uint32_t currentTid = static_cast<uint32_t>(syscall(SYS_gettid));
+    int ret = JsvmRequestGc(currentTid);
+    JSVMTEST_CALL(OH_JSVM_RemoveHandlerForGC(vm, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered, nullptr));
+
+    JSVMTEST_CALL(OH_JSVM_RemoveHandlerForGC(vm3, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered3, nullptr));
+    JSVMTEST_CALL(OH_JSVM_CloseVMScope(vm3, vmScope3));
+    JSVMTEST_CALL(OH_JSVM_DestroyVM(vm3));
+    JSVMTEST_CALL(OH_JSVM_RemoveHandlerForGC(vm2, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered2, nullptr));
+    JSVMTEST_CALL(OH_JSVM_CloseVMScope(vm2, vmScope2));
+    JSVMTEST_CALL(OH_JSVM_DestroyVM(vm2));
+
+    EXPECT_EQ(ret, 0);
+    EXPECT_TRUE(g_gcTriggeredFlag);
+    EXPECT_TRUE(g_gcTriggeredFlag2);
+    EXPECT_TRUE(g_gcTriggeredFlag3);
+}
+
+struct GcNestedWorkerVms {
+    JSVM_VM vm2 = nullptr;
+    JSVM_VMScope vmScope2 = nullptr;
+    JSVM_VM vm3 = nullptr;
+    JSVM_VMScope vmScope3 = nullptr;
+    JSVM_Env env3 = nullptr;
+    JSVM_EnvScope envScope3 = nullptr;
+    JSVM_HandleScope handleScope3 = nullptr;
+};
+
+static void TeardownGcNestedWorkerVms(GcNestedWorkerVms* v)
+{
+    if (v->env3 != nullptr) {
+        if (v->handleScope3 != nullptr) {
+            OH_JSVM_CloseHandleScope(v->env3, v->handleScope3);
+        }
+        if (v->envScope3 != nullptr) {
+            OH_JSVM_CloseEnvScope(v->env3, v->envScope3);
+        }
+        OH_JSVM_DestroyEnv(v->env3);
+    }
+    if (v->vmScope3 != nullptr) {
+        OH_JSVM_CloseVMScope(v->vm3, v->vmScope3);
+    }
+    if (v->vm3 != nullptr) {
+        OH_JSVM_DestroyVM(v->vm3);
+    }
+    if (v->vmScope2 != nullptr) {
+        OH_JSVM_CloseVMScope(v->vm2, v->vmScope2);
+    }
+    if (v->vm2 != nullptr) {
+        OH_JSVM_DestroyVM(v->vm2);
+    }
+}
+
+static void RunGcNestedWorker(std::atomic<bool>& vmReady, std::atomic<uint32_t>& workerTid)
+{
+    GcNestedWorkerVms v;
+    bool ok = OH_JSVM_CreateVM(nullptr, &v.vm2) == JSVM_OK &&
+              OH_JSVM_OpenVMScope(v.vm2, &v.vmScope2) == JSVM_OK &&
+              OH_JSVM_AddHandlerForGC(v.vm2, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered2,
+                                      JSVM_GC_TYPE_ALL, nullptr) == JSVM_OK &&
+              OH_JSVM_CreateVM(nullptr, &v.vm3) == JSVM_OK &&
+              OH_JSVM_OpenVMScope(v.vm3, &v.vmScope3) == JSVM_OK &&
+              OH_JSVM_CreateEnv(v.vm3, 0, nullptr, &v.env3) == JSVM_OK &&
+              OH_JSVM_OpenEnvScope(v.env3, &v.envScope3) == JSVM_OK &&
+              OH_JSVM_OpenHandleScope(v.env3, &v.handleScope3) == JSVM_OK &&
+              OH_JSVM_AddHandlerForGC(v.vm3, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered3,
+                                      JSVM_GC_TYPE_ALL, nullptr) == JSVM_OK;
+    if (ok) {
+        workerTid = static_cast<uint32_t>(syscall(SYS_gettid));
+    }
+    vmReady = true;
+    if (ok) {
+        const char* src = "const t0 = Date.now(); while (Date.now() - t0 < 3000) {}";
+        JSVM_Value jsSrc = nullptr;
+        JSVM_Script script = nullptr;
+        JSVM_Value result = nullptr;
+        if (OH_JSVM_CreateStringUtf8(v.env3, src, strlen(src), &jsSrc) == JSVM_OK &&
+            OH_JSVM_CompileScript(v.env3, jsSrc, nullptr, 0, true, nullptr, &script) == JSVM_OK) {
+            OH_JSVM_RunScript(v.env3, script, &result);
+        }
+    }
+    TeardownGcNestedWorkerVms(&v);
+}
+
+HWTEST_F(JSVMTest, RequestGarbageCollectionCrossThreadNestedVms, TestSize.Level1)
+{
+    std::atomic<bool> vmReady = false;
+    std::atomic<uint32_t> workerTid = 0;
+    g_gcTriggeredFlag2 = false;
+    g_gcTriggeredFlag3 = false;
+
+    std::thread worker([&vmReady, &workerTid]() { RunGcNestedWorker(vmReady, workerTid); });
+    EXPECT_TRUE(WaitForFlag(vmReady, 10000));
+    uint32_t tid = workerTid.load();
+    int ret = (tid != 0) ? JsvmRequestGc(tid) : -1;
+
+    bool innerSeen = WaitForFlag(g_gcTriggeredFlag3, 5000);
+    bool outerSeen = WaitForFlag(g_gcTriggeredFlag2, 5000);
+    worker.join();
+
+    EXPECT_NE(tid, 0u);
+    EXPECT_EQ(ret, 0);
+    EXPECT_TRUE(innerSeen);
+    EXPECT_TRUE(outerSeen);
+}
+
+// Externals with no remaining JS references are finalized by the requested
+// GC, and the finalize callback runs after BEFORE_GC.
+HWTEST_F(JSVMTest, RequestGarbageCollectionFinalizeOrder, TestSize.Level1)
+{
+    constexpr uint32_t externalValue = 42;
+    g_gcTriggeredFlag = false;
+    g_gcFinalizeFlag = false;
+    g_gcFinalizeAfterBeforeGc = false;
+    JSVMTEST_CALL(OH_JSVM_AddHandlerForGC(vm, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered,
+                                          JSVM_GC_TYPE_ALL, nullptr));
+
+    JSVM_HandleScope scope = nullptr;
+    JSVMTEST_CALL(OH_JSVM_OpenHandleScope(env, &scope));
+    JSVM_Value external = nullptr;
+    JSVMTEST_CALL(OH_JSVM_CreateExternal(env, const_cast<uint32_t*>(&externalValue), OnFinalize,
+                                         nullptr, &external));
+    // Closing the scope drops the last JS reference to the external.
+    JSVMTEST_CALL(OH_JSVM_CloseHandleScope(env, scope));
+
+    uint32_t currentTid = static_cast<uint32_t>(syscall(SYS_gettid));
+    int ret = JsvmRequestGc(currentTid);
+    bool finalized = WaitForFlag(g_gcFinalizeFlag, 2000);
+    JSVMTEST_CALL(OH_JSVM_RemoveHandlerForGC(vm, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered, nullptr));
+
+    EXPECT_EQ(ret, 0);
+    EXPECT_TRUE(g_gcTriggeredFlag);
+    EXPECT_TRUE(finalized);
+    EXPECT_TRUE(g_gcFinalizeAfterBeforeGc.load());
+}
+
+// Garbage dropped in a closed handle scope is reclaimed by the requested GC;
+// repeated cycles show no heap growth trend.
+HWTEST_F(JSVMTest, RequestGarbageCollectionReclaimsGarbage, TestSize.Level1)
+{
+    constexpr int reclaimLoops = 100;
+    JSVM_HeapStatistics before = {};
+    JSVM_HeapStatistics after = {};
+    JSVMTEST_CALL(OH_JSVM_GetHeapStatistics(vm, &before));
+
+    for (int i = 0; i < reclaimLoops; i++) {
+        JSVM_HandleScope scope = nullptr;
+        JSVMTEST_CALL(OH_JSVM_OpenHandleScope(env, &scope));
+        jsvm::Run("(function () { const a = new Array(131072); a.fill(1); return a.length; })();");
+        JSVMTEST_CALL(OH_JSVM_CloseHandleScope(env, scope));
+        ASSERT_EQ(JsvmRequestGc(0), 0);
+    }
+
+    JSVMTEST_CALL(OH_JSVM_GetHeapStatistics(vm, &after));
+    // Growth tolerance: <= 5% of the baseline.
+    EXPECT_LE(after.usedHeapSize, before.usedHeapSize + before.usedHeapSize / 20);
+}
+
+// A handle-scope churn of 100k iterations leaves no heap growth after GC.
+HWTEST_F(JSVMTest, RequestGarbageCollectionAfterHandleScopeLoop, TestSize.Level1)
+{
+    constexpr int scopeLoops = 100000;
+    JSVM_HeapStatistics before = {};
+    JSVM_HeapStatistics after = {};
+    JSVMTEST_CALL(OH_JSVM_GetHeapStatistics(vm, &before));
+
+    for (int i = 0; i < scopeLoops; i++) {
+        JSVM_HandleScope scope = nullptr;
+        JSVMTEST_CALL(OH_JSVM_OpenHandleScope(env, &scope));
+        JSVM_Value value = nullptr;
+        JSVMTEST_CALL(OH_JSVM_GetBoolean(env, true, &value));
+        JSVMTEST_CALL(OH_JSVM_CloseHandleScope(env, scope));
+    }
+    ASSERT_EQ(JsvmRequestGc(0), 0);
+
+    JSVMTEST_CALL(OH_JSVM_GetHeapStatistics(vm, &after));
+    EXPECT_LE(after.usedHeapSize, before.usedHeapSize + before.usedHeapSize / 20);
+}
+
+static long ReadRssKb()
+{
+    constexpr unsigned long pageSizeKb = 4;
+    std::ifstream statm("/proc/self/statm");
+    unsigned long totalPages = 0;
+    unsigned long residentPages = 0;
+    if (!(statm >> totalPages >> residentPages)) {
+        return -1;
+    }
+    return static_cast<long>(residentPages * pageSizeKb);
+}
+
+HWTEST_F(JSVMTest, RequestGarbageCollectionVmChurn, TestSize.Level1)
+{
+    constexpr int churnLoops = 1000;
+    constexpr long rssToleranceKb = 32 * 1024;
+    long rssBefore = ReadRssKb();
+    ASSERT_GT(rssBefore, 0);
+
+    for (int i = 0; i < churnLoops; i++) {
+        JSVM_VM vm2 = nullptr;
+        JSVM_VMScope vmScope2 = nullptr;
+        JSVMTEST_CALL(OH_JSVM_CreateVM(nullptr, &vm2));
+        JSVMTEST_CALL(OH_JSVM_OpenVMScope(vm2, &vmScope2));
+        ASSERT_EQ(JsvmRequestGc(0), 0);
+        JSVMTEST_CALL(OH_JSVM_CloseVMScope(vm2, vmScope2));
+        JSVMTEST_CALL(OH_JSVM_DestroyVM(vm2));
+    }
+
+    long rssAfter = ReadRssKb();
+    EXPECT_LE(rssAfter - rssBefore, rssToleranceKb);
+}
+
+static void RunGcIdleDestroyWorker(std::atomic<bool>& vmReady, std::atomic<uint32_t>& workerTid)
+{
+    JSVM_VM vm2 = nullptr;
+    JSVM_VMScope vmScope2 = nullptr;
+    bool ok = OH_JSVM_CreateVM(nullptr, &vm2) == JSVM_OK &&
+              OH_JSVM_OpenVMScope(vm2, &vmScope2) == JSVM_OK &&
+              OH_JSVM_AddHandlerForGC(vm2, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered3,
+                                      JSVM_GC_TYPE_ALL, nullptr) == JSVM_OK;
+    if (ok) {
+        workerTid = static_cast<uint32_t>(syscall(SYS_gettid));
+    }
+    vmReady = true;
+    if (ok) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(K_GC_IDLE_PHASE_MS));
+        OH_JSVM_RemoveHandlerForGC(vm2, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered3, nullptr);
+    }
+    if (vmScope2 != nullptr) {
+        OH_JSVM_CloseVMScope(vm2, vmScope2);
+    }
+    if (vm2 != nullptr) {
+        OH_JSVM_DestroyVM(vm2);
+    }
+}
+
+HWTEST_F(JSVMTest, RequestGarbageCollectionPendingRequestVmDestroy, TestSize.Level1)
+{
+    std::atomic<bool> vmReady = false;
+    std::atomic<uint32_t> workerTid = 0;
+    g_gcTriggeredFlag3 = false;
+
+    std::thread worker([&vmReady, &workerTid]() { RunGcIdleDestroyWorker(vmReady, workerTid); });
+    EXPECT_TRUE(WaitForFlag(vmReady, 10000));
+    uint32_t tid = workerTid.load();
+    int ret = (tid != 0) ? JsvmRequestGc(tid) : -1;
+
+    bool deliveredEarly = WaitForFlag(g_gcTriggeredFlag3, K_GC_DEFER_CHECK_MS);
+    worker.join();
+
+    EXPECT_NE(tid, 0u);
+    EXPECT_EQ(ret, 0);
+    EXPECT_FALSE(deliveredEarly);
+    EXPECT_FALSE(g_gcTriggeredFlag3.load());
+}
+
+// The exported symbol is resolvable at runtime and the resolved function
+// triggers the GC.
+HWTEST_F(JSVMTest, RequestGarbageCollectionDlsymAccess, TestSize.Level1)
+{
+    g_gcTriggeredFlag = false;
+    JSVMTEST_CALL(OH_JSVM_AddHandlerForGC(vm, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered,
+                                          JSVM_GC_TYPE_ALL, nullptr));
+
+    void* symbol = dlsym(RTLD_DEFAULT, "JsvmRequestGc");
+    ASSERT_NE(symbol, nullptr);
+    auto requestGc = reinterpret_cast<int (*)(uint32_t)>(symbol);
+    int ret = requestGc(0);
+
+    JSVMTEST_CALL(OH_JSVM_RemoveHandlerForGC(vm, JSVM_CB_TRIGGER_BEFORE_GC, OnGCTriggered, nullptr));
+    EXPECT_EQ(ret, 0);
+    EXPECT_TRUE(g_gcTriggeredFlag);
+}
+
+// After the requested GC collects an object, a weak reference no longer
+// resolves to it and reading the reference does not crash.
+HWTEST_F(JSVMTest, RequestGarbageCollectionCollectedObjectInaccessible, TestSize.Level1)
+{
+    JSVM_Ref weakRef = nullptr;
+    {
+        JSVM_HandleScope scope = nullptr;
+        JSVMTEST_CALL(OH_JSVM_OpenHandleScope(env, &scope));
+        JSVM_Value object = jsvm::Run("(function () { return { payload: 1 }; })();");
+        JSVMTEST_CALL(OH_JSVM_CreateReference(env, object, 0, &weakRef));
+        JSVMTEST_CALL(OH_JSVM_CloseHandleScope(env, scope));
+    }
+
+    uint32_t currentTid = static_cast<uint32_t>(syscall(SYS_gettid));
+    ASSERT_EQ(JsvmRequestGc(currentTid), 0);
+
+    JSVM_Value resolved = reinterpret_cast<JSVM_Value>(1);
+    JSVMTEST_CALL(OH_JSVM_GetReferenceValue(env, weakRef, &resolved));
+    bool isUndefined = false;
+    if (resolved != nullptr) {
+        JSVMTEST_CALL(OH_JSVM_IsUndefined(env, resolved, &isUndefined));
+    }
+    JSVMTEST_CALL(OH_JSVM_DeleteReference(env, weakRef));
+
+    EXPECT_TRUE(resolved == nullptr || isUndefined);
 }
