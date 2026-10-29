@@ -154,6 +154,9 @@ if [ -n "${DEPFILE}" ] && [ -n "${JSVM_PATH}" ] && [ -n "${TARGET_GEN_DIR}" ]; t
     else
         output_so="${TARGET_GEN_DIR}/libjsvm.so"
     fi
+    # GN declares the output relative to the Ninja build directory. The
+    # inner build canonicalizes TARGET_GEN_DIR, so normalize the depfile key.
+    output_so=$(python3 -c 'import os, sys; print(os.path.relpath(sys.argv[1]))' "$output_so")
     deps=$(find "${JSVM_PATH}/src" "${JSVM_PATH}/interface" \
         \( -name "*.cpp" -o -name "*.h" \) -type f 2>/dev/null | tr '\n' ' ')
     deps="${deps} ${JSVM_PATH}/CMakeLists.txt ${JSVM_PATH}/jsvm.gni"
