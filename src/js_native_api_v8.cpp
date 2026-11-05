@@ -20,6 +20,8 @@
 #include <cstring>
 #include <list>
 #include <securec.h>
+#include <memory>
+#include <new>
 #include <sstream>
 #include <unistd.h>
 
@@ -50,6 +52,17 @@
 #error Unsupported Perfetto.
 #endif // V8_USE_PERFETTO
 #define TRACE_DISABLED_BY_DEFAULT(name) "disabled-by-default-" name
+
+// JSVM_BackingStore is intentionally independent of JSVM_Env and JSVM_VM. A
+// handle can therefore keep shared memory alive while it is moved between VMs.
+// Each handle owns exactly one std::shared_ptr copy and must be released once.
+struct JSVM_BackingStore__ final {
+    explicit JSVM_BackingStore__(std::shared_ptr<v8::BackingStore> backingStore)
+        : backingStore(std::move(backingStore))
+    {}
+
+    std::shared_ptr<v8::BackingStore> backingStore;
+};
 
 FORCE_NOINLINE void AddValueToScopeCheck(
     JSVM_Env env, JSVM_Value val, const char *callerFunctionName, bool isEscape = false)
@@ -4196,6 +4209,24 @@ JSVM_Status OH_JSVM_CreateArraybuffer(JSVM_Env env, size_t byteLength, void** da
     return GET_RETURN_STATUS(env);
 }
 
+JSVM_Status OH_JSVM_CreateSharedArrayBuffer(JSVM_Env env, size_t byteLength, void** data, JSVM_Value* result)
+{
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
+    CHECK_ARG(env, result);
+
+    v8::Local<v8::SharedArrayBuffer> buffer;
+    auto maybeBuffer = v8::SharedArrayBuffer::MaybeNew(env->isolate, byteLength);
+    RETURN_STATUS_IF_FALSE(env, maybeBuffer.ToLocal(&buffer), JSVM_GENERIC_FAILURE);
+
+    if (data != nullptr) {
+        *data = buffer->Data();
+    }
+
+    *result = v8impl::JsValueFromV8LocalValue(buffer);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
+    return GET_RETURN_STATUS(env);
+}
+
 JSVM_Status OH_JSVM_AllocateArrayBufferBackingStoreData(size_t byteLength,
                                                         JSVM_InitializedFlag initialized,
                                                         void** data)
@@ -4421,6 +4452,137 @@ JSVM_Status OH_JSVM_GetArraybufferInfo(JSVM_Env env, JSVM_Value arraybuffer, voi
     return ClearLastError(env);
 }
 
+JSVM_Status OH_JSVM_IsSharedArrayBuffer(JSVM_Env env, JSVM_Value value, bool* result)
+{
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
+    CHECK_ARG(env, value);
+    CHECK_ARG(env, result);
+    CHECK_SCOPE(env, value);
+
+    *result = v8impl::V8LocalValueFromJsValue(value)->IsSharedArrayBuffer();
+    return ClearLastError(env);
+}
+
+JSVM_Status OH_JSVM_GetSharedArrayBufferInfo(JSVM_Env env,
+                                             JSVM_Value sharedArrayBuffer,
+                                             void** data,
+                                             size_t* byteLength,
+                                             size_t* maxByteLength)
+{
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
+    CHECK_ARG(env, sharedArrayBuffer);
+    CHECK_SCOPE(env, sharedArrayBuffer);
+
+    v8::Local<v8::Value> value = v8impl::V8LocalValueFromJsValue(sharedArrayBuffer);
+    RETURN_STATUS_IF_FALSE(env, value->IsSharedArrayBuffer(), JSVM_INVALID_ARG);
+
+    v8::Local<v8::SharedArrayBuffer> buffer = value.As<v8::SharedArrayBuffer>();
+    if (data != nullptr) {
+        *data = buffer->Data();
+    }
+    if (byteLength != nullptr) {
+        *byteLength = buffer->ByteLength();
+    }
+    if (maxByteLength != nullptr) {
+        *maxByteLength = buffer->MaxByteLength();
+    }
+    return ClearLastError(env);
+}
+
+JSVM_Status OH_JSVM_GetSharedArrayBufferBackingStore(JSVM_Env env,
+                                                     JSVM_Value sharedArrayBuffer,
+                                                     JSVM_BackingStore* result)
+{
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
+    CHECK_ARG(env, sharedArrayBuffer);
+    CHECK_ARG(env, result);
+    CHECK_SCOPE(env, sharedArrayBuffer);
+
+    v8::Local<v8::Value> value = v8impl::V8LocalValueFromJsValue(sharedArrayBuffer);
+    RETURN_STATUS_IF_FALSE(env, value->IsSharedArrayBuffer(), JSVM_INVALID_ARG);
+
+    auto buffer = value.As<v8::SharedArrayBuffer>();
+    auto* handle = new (std::nothrow) JSVM_BackingStore__(buffer->GetBackingStore());
+    RETURN_STATUS_IF_FALSE(env, handle != nullptr, JSVM_GENERIC_FAILURE);
+
+    *result = handle;
+    return ClearLastError(env);
+}
+
+JSVM_Status OH_JSVM_RetainBackingStore(JSVM_BackingStore backingStore, JSVM_BackingStore* result)
+{
+    JSVM_API_ENTER_GLOBAL(K_JSVM_ACCESS_V8_GLOBAL);
+    CHECK_ARG_WITHOUT_ENV(backingStore);
+    CHECK_ARG_WITHOUT_ENV(result);
+    RETURN_STATUS_IF_FALSE_WITHOUT_ENV(backingStore->backingStore != nullptr, JSVM_INVALID_ARG);
+
+    auto* retained = new (std::nothrow) JSVM_BackingStore__(backingStore->backingStore);
+    RETURN_STATUS_IF_FALSE_WITHOUT_ENV(retained != nullptr, JSVM_GENERIC_FAILURE);
+
+    *result = retained;
+    return JSVM_OK;
+}
+
+JSVM_Status OH_JSVM_ReleaseBackingStore(JSVM_BackingStore backingStore)
+{
+    JSVM_API_ENTER_GLOBAL(K_JSVM_ACCESS_V8_GLOBAL);
+    CHECK_ARG_WITHOUT_ENV(backingStore);
+    delete backingStore;
+    return JSVM_OK;
+}
+
+JSVM_Status OH_JSVM_GetBackingStoreInfo(JSVM_BackingStore backingStore,
+                                        void** data,
+                                        size_t* byteLength,
+                                        size_t* maxByteLength,
+                                        bool* isShared,
+                                        bool* isResizable)
+{
+    JSVM_API_ENTER_GLOBAL(K_JSVM_ACCESS_V8_GLOBAL);
+    CHECK_ARG_WITHOUT_ENV(backingStore);
+    const auto& store = backingStore->backingStore;
+    RETURN_STATUS_IF_FALSE_WITHOUT_ENV(store != nullptr, JSVM_INVALID_ARG);
+
+    if (data != nullptr) {
+        *data = store->Data();
+    }
+    if (byteLength != nullptr) {
+        *byteLength = store->ByteLength();
+    }
+    if (maxByteLength != nullptr) {
+        *maxByteLength = store->MaxByteLength();
+    }
+    if (isShared != nullptr) {
+        *isShared = store->IsShared();
+    }
+    if (isResizable != nullptr) {
+        *isResizable = store->IsResizableByUserJavaScript();
+    }
+    return JSVM_OK;
+}
+
+JSVM_Status OH_JSVM_CreateSharedArrayBufferFromBackingStore(JSVM_Env env,
+                                                            JSVM_BackingStore backingStore,
+                                                            JSVM_Value* result)
+{
+    JSVM_API_ENTER(env, K_JSVM_ACCESS_JS_RUNTIME);
+    CHECK_ARG(env, backingStore);
+    CHECK_ARG(env, result);
+    RETURN_STATUS_IF_FALSE(env,
+                           backingStore->backingStore != nullptr && backingStore->backingStore->IsShared(),
+                           JSVM_INVALID_ARG);
+
+    // SharedArrayBuffer::New takes a shared_ptr by value. Copying here gives the
+    // new JavaScript object its own reference without consuming the native handle.
+    auto storeForBuffer = backingStore->backingStore;
+    v8::Local<v8::SharedArrayBuffer> buffer =
+        v8::SharedArrayBuffer::New(env->isolate, std::move(storeForBuffer));
+
+    *result = v8impl::JsValueFromV8LocalValue(buffer);
+    ADD_VAL_TO_SCOPE_CHECK(env, *result);
+    return GET_RETURN_STATUS(env);
+}
+
 JSVM_Status OH_JSVM_IsTypedarray(JSVM_Env env, JSVM_Value value, bool* result)
 {
     JSVM_API_ENTER(env, K_JSVM_ACCESS_V8_ISOLATE);
@@ -4447,47 +4609,56 @@ JSVM_Status OH_JSVM_CreateTypedarray(JSVM_Env env,
     CHECK_SCOPE(env, arraybuffer);
 
     v8::Local<v8::Value> value = v8impl::V8LocalValueFromJsValue(arraybuffer);
-    RETURN_STATUS_IF_FALSE(env, value->IsArrayBuffer(), JSVM_INVALID_ARG);
+    RETURN_STATUS_IF_FALSE(env, value->IsArrayBuffer() || value->IsSharedArrayBuffer(), JSVM_INVALID_ARG);
 
-    v8::Local<v8::ArrayBuffer> buffer = value.As<v8::ArrayBuffer>();
     v8::Local<v8::TypedArray> typedArray;
+    auto createTypedArray = [&](auto buffer) -> JSVM_Status {
+        switch (type) {
+            case JSVM_INT8_ARRAY:
+                CREATE_TYPED_ARRAY(env, Int8Array, ByteSize::SIZE_1_BYTES, buffer, byteOffset, length, typedArray);
+                break;
+            case JSVM_UINT8_ARRAY:
+                CREATE_TYPED_ARRAY(env, Uint8Array, ByteSize::SIZE_1_BYTES, buffer, byteOffset, length, typedArray);
+                break;
+            case JSVM_UINT8_CLAMPED_ARRAY:
+                CREATE_TYPED_ARRAY(
+                    env, Uint8ClampedArray, ByteSize::SIZE_1_BYTES, buffer, byteOffset, length, typedArray);
+                break;
+            case JSVM_INT16_ARRAY:
+                CREATE_TYPED_ARRAY(env, Int16Array, ByteSize::SIZE_2_BYTES, buffer, byteOffset, length, typedArray);
+                break;
+            case JSVM_UINT16_ARRAY:
+                CREATE_TYPED_ARRAY(env, Uint16Array, ByteSize::SIZE_2_BYTES, buffer, byteOffset, length, typedArray);
+                break;
+            case JSVM_INT32_ARRAY:
+                CREATE_TYPED_ARRAY(env, Int32Array, ByteSize::SIZE_4_BYTES, buffer, byteOffset, length, typedArray);
+                break;
+            case JSVM_UINT32_ARRAY:
+                CREATE_TYPED_ARRAY(env, Uint32Array, ByteSize::SIZE_4_BYTES, buffer, byteOffset, length, typedArray);
+                break;
+            case JSVM_FLOAT32_ARRAY:
+                CREATE_TYPED_ARRAY(env, Float32Array, ByteSize::SIZE_4_BYTES, buffer, byteOffset, length, typedArray);
+                break;
+            case JSVM_FLOAT64_ARRAY:
+                CREATE_TYPED_ARRAY(env, Float64Array, ByteSize::SIZE_8_BYTES, buffer, byteOffset, length, typedArray);
+                break;
+            case JSVM_BIGINT64_ARRAY:
+                CREATE_TYPED_ARRAY(env, BigInt64Array, ByteSize::SIZE_8_BYTES, buffer, byteOffset, length, typedArray);
+                break;
+            case JSVM_BIGUINT64_ARRAY:
+                CREATE_TYPED_ARRAY(env, BigUint64Array, ByteSize::SIZE_8_BYTES, buffer, byteOffset, length, typedArray);
+                break;
+            default:
+                return SetLastError(env, JSVM_INVALID_ARG);
+        }
+        return JSVM_OK;
+    };
 
-    switch (type) {
-        case JSVM_INT8_ARRAY:
-            CREATE_TYPED_ARRAY(env, Int8Array, ByteSize::SIZE_1_BYTES, buffer, byteOffset, length, typedArray);
-            break;
-        case JSVM_UINT8_ARRAY:
-            CREATE_TYPED_ARRAY(env, Uint8Array, ByteSize::SIZE_1_BYTES, buffer, byteOffset, length, typedArray);
-            break;
-        case JSVM_UINT8_CLAMPED_ARRAY:
-            CREATE_TYPED_ARRAY(env, Uint8ClampedArray, ByteSize::SIZE_1_BYTES, buffer, byteOffset, length, typedArray);
-            break;
-        case JSVM_INT16_ARRAY:
-            CREATE_TYPED_ARRAY(env, Int16Array, ByteSize::SIZE_2_BYTES, buffer, byteOffset, length, typedArray);
-            break;
-        case JSVM_UINT16_ARRAY:
-            CREATE_TYPED_ARRAY(env, Uint16Array, ByteSize::SIZE_2_BYTES, buffer, byteOffset, length, typedArray);
-            break;
-        case JSVM_INT32_ARRAY:
-            CREATE_TYPED_ARRAY(env, Int32Array, ByteSize::SIZE_4_BYTES, buffer, byteOffset, length, typedArray);
-            break;
-        case JSVM_UINT32_ARRAY:
-            CREATE_TYPED_ARRAY(env, Uint32Array, ByteSize::SIZE_4_BYTES, buffer, byteOffset, length, typedArray);
-            break;
-        case JSVM_FLOAT32_ARRAY:
-            CREATE_TYPED_ARRAY(env, Float32Array, ByteSize::SIZE_4_BYTES, buffer, byteOffset, length, typedArray);
-            break;
-        case JSVM_FLOAT64_ARRAY:
-            CREATE_TYPED_ARRAY(env, Float64Array, ByteSize::SIZE_8_BYTES, buffer, byteOffset, length, typedArray);
-            break;
-        case JSVM_BIGINT64_ARRAY:
-            CREATE_TYPED_ARRAY(env, BigInt64Array, ByteSize::SIZE_8_BYTES, buffer, byteOffset, length, typedArray);
-            break;
-        case JSVM_BIGUINT64_ARRAY:
-            CREATE_TYPED_ARRAY(env, BigUint64Array, ByteSize::SIZE_8_BYTES, buffer, byteOffset, length, typedArray);
-            break;
-        default:
-            return SetLastError(env, JSVM_INVALID_ARG);
+    JSVM_Status status = value->IsSharedArrayBuffer()
+        ? createTypedArray(value.As<v8::SharedArrayBuffer>())
+        : createTypedArray(value.As<v8::ArrayBuffer>());
+    if (status != JSVM_OK) {
+        return status;
     }
 
     *result = v8impl::JsValueFromV8LocalValue(typedArray);
@@ -4577,22 +4748,25 @@ JSVM_Status OH_JSVM_CreateDataview(JSVM_Env env,
     CHECK_SCOPE(env, arraybuffer);
 
     v8::Local<v8::Value> value = v8impl::V8LocalValueFromJsValue(arraybuffer);
-    RETURN_STATUS_IF_FALSE(env, value->IsArrayBuffer(), JSVM_INVALID_ARG);
-
-    v8::Local<v8::ArrayBuffer> buffer = value.As<v8::ArrayBuffer>();
+    RETURN_STATUS_IF_FALSE(env, value->IsArrayBuffer() || value->IsSharedArrayBuffer(), JSVM_INVALID_ARG);
 
     // Use subtraction-style bounds checks: `byteLength + byteOffset` can wrap
     // around SIZE_MAX, bypass this check, and later trip an internal V8 CHECK
     // (process termination) instead of returning a RangeError.
-    if (byteOffset > buffer->ByteLength() || byteLength > buffer->ByteLength() - byteOffset) {
+    size_t bufferByteLength = value->IsSharedArrayBuffer()
+        ? value.As<v8::SharedArrayBuffer>()->ByteLength()
+        : value.As<v8::ArrayBuffer>()->ByteLength();
+    if (byteOffset > bufferByteLength || byteLength > bufferByteLength - byteOffset) {
         OH_JSVM_ThrowRangeError(env, "ERR_JSVM_INVALID_DATAVIEW_ARGS",
                                 "byteOffset + byteLength should be less than or "
                                 "equal to the size in bytes of the array passed in");
         return SetLastError(env, JSVM_PENDING_EXCEPTION);
     }
-    v8::Local<v8::DataView> DataView = v8::DataView::New(buffer, byteOffset, byteLength);
+    v8::Local<v8::DataView> dataView = value->IsSharedArrayBuffer()
+        ? v8::DataView::New(value.As<v8::SharedArrayBuffer>(), byteOffset, byteLength)
+        : v8::DataView::New(value.As<v8::ArrayBuffer>(), byteOffset, byteLength);
 
-    *result = v8impl::JsValueFromV8LocalValue(DataView);
+    *result = v8impl::JsValueFromV8LocalValue(dataView);
     ADD_VAL_TO_SCOPE_CHECK(env, *result);
     return GET_RETURN_STATUS(env);
 }
@@ -4829,7 +5003,7 @@ JSVM_Status OH_JSVM_DetachArraybuffer(JSVM_Env env, JSVM_Value arraybuffer)
     CHECK_SCOPE(env, arraybuffer);
 
     v8::Local<v8::Value> value = v8impl::V8LocalValueFromJsValue(arraybuffer);
-    RETURN_STATUS_IF_FALSE(env, value->IsArrayBuffer() || value->IsSharedArrayBuffer(), JSVM_ARRAYBUFFER_EXPECTED);
+    RETURN_STATUS_IF_FALSE(env, value->IsArrayBuffer(), JSVM_ARRAYBUFFER_EXPECTED);
 
     v8::Local<v8::ArrayBuffer> it = value.As<v8::ArrayBuffer>();
     RETURN_STATUS_IF_FALSE(env, it->IsDetachable(), JSVM_DETACHABLE_ARRAYBUFFER_EXPECTED);

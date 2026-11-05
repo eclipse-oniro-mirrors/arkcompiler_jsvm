@@ -114,6 +114,19 @@ typedef struct JSVM_Value__* JSVM_Value;
  */
 typedef struct JSVM_Data__* JSVM_Data;
 
+#ifdef JSVM_EXPERIMENTAL
+/**
+ * @brief An opaque, VM-independent handle to a V8 ArrayBuffer backing store.
+ *
+ * A handle owns one shared reference to the backing store. It can be passed
+ * between threads and JSVM instances in the same process. Each handle returned
+ * by a JSVM API must be released with OH_JSVM_ReleaseBackingStore.
+ *
+ * @since 26
+ */
+typedef struct JSVM_BackingStore__* JSVM_BackingStore;
+#endif // JSVM_EXPERIMENTAL
+
 /**
  * @brief To represent a JavaScript value references.
  *

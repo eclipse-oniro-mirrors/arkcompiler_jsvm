@@ -1129,7 +1129,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_GetPrivate(JSVM_Env env, JSVM_Value object, JSVM
 JSVM_EXTERN JSVM_Status OH_JSVM_DeletePrivate(JSVM_Env env, JSVM_Value object, JSVM_Data key);
 
 /**
- * @brief This API creates a JavaScript TypedArray object over an existing ArrayBuffer. TypedArray
+ * @brief This API creates a JavaScript TypedArray object over an existing ArrayBuffer or SharedArrayBuffer. TypedArray
  * objects provide an array-like view over an underlying data buffer where each element has the
  * same underlying binary scalar datatype.It's required that (length * size_of_element) + byte_offset should
  * be <= the size in bytes of the array passed in. If not, a RangeError exception is raised.
@@ -1137,7 +1137,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_DeletePrivate(JSVM_Env env, JSVM_Value object, J
  * @param env: The environment that the API is invoked under.
  * @param type: Scalar datatype of the elements within the TypedArray.
  * @param length: Number of elements in the TypedArray.
- * @param arraybuffer: ArrayBuffer underlying the typed array.
+ * @param arraybuffer: ArrayBuffer or SharedArrayBuffer underlying the typed array.
  * @param byteOffset: The byte offset within the ArrayBuffer from which to start projecting the TypedArray.
  * @param result: A JSVM_Value representing a JavaScript TypedArray
  * @return Returns JSVM_OK if the API succeeded.
@@ -1151,7 +1151,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_CreateTypedarray(JSVM_Env env,
                                                  JSVM_Value* result);
 
 /**
- * @brief This API creates a JavaScript DataView object over an existing ArrayBuffer. DataView
+ * @brief This API creates a JavaScript DataView object over an existing ArrayBuffer or SharedArrayBuffer. DataView
  * objects provide an array-like view over an underlying data buffer, but one which allows items
  * of different size and type in the ArrayBuffer.It is required that byte_length + byte_offset is
  * less than or equal to the size in bytes of the array passed in. If not, a RangeError exception
@@ -1159,7 +1159,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_CreateTypedarray(JSVM_Env env,
  *
  * @param env: The environment that the API is invoked under.
  * @param length: Number of elements in the DataView.
- * @param arraybuffer: ArrayBuffer underlying the DataView.
+ * @param arraybuffer: ArrayBuffer or SharedArrayBuffer underlying the DataView.
  * @param byteOffset: The byte offset within the ArrayBuffer from which to start projecting the DataView.
  * @param result:A JSVM_Value representing a JavaScript DataView.
  * @return Returns JSVM_OK if the API succeeded.
@@ -1396,7 +1396,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_GetPrototype(JSVM_Env env, JSVM_Value object, JS
  * @param data: The data buffer underlying the TypedArray adjusted by the byte_offset value so that it
  * points to the first element in the TypedArray. If the length of the array is 0, this may be NULL or
  * any other pointer value.
- * @param arraybuffer: The ArrayBuffer underlying the TypedArray.
+ * @param arraybuffer: The ArrayBuffer or SharedArrayBuffer underlying the TypedArray.
  * @param byteOffset: The byte offset within the underlying native array at which the first element of
  * the arrays is located. The value for the data parameter has already been adjusted so that data points
  * to the first element in the array. Therefore, the first byte of the native array would be at data - byte_offset.
@@ -1420,7 +1420,7 @@ JSVM_EXTERN JSVM_Status OH_JSVM_GetTypedarrayInfo(JSVM_Env env,
  * @param bytelength: Number of bytes in the DataView.
  * @param data: The data buffer underlying the DataView.
  * If byte_length is 0, this may be NULL or any other pointer value.
- * @param arraybuffer: ArrayBuffer underlying the DataView.
+ * @param arraybuffer: ArrayBuffer or SharedArrayBuffer underlying the DataView.
  * @param byteOffset: The byte offset within the data buffer from which to start projecting the DataView.
  * @return Returns JSVM_OK if the API succeeded.
  * @since 11
@@ -3358,6 +3358,133 @@ JSVM_EXTERN JSVM_Status OH_JSVM_CreateArrayBufferFromExternalMemory(JSVM_Env env
                                                                     void* finalizeHint,
                                                                     bool* copied,
                                                                     JSVM_Value* result);
+
+/**
+ * @brief Creates an engine-managed JavaScript SharedArrayBuffer.
+ *
+ * @param env The environment that the API is invoked under.
+ * @param byteLength Size of the shared buffer in bytes.
+ * @param data Optional output for the backing-store data address.
+ * @param result A JSVM_Value representing the created SharedArrayBuffer.
+ * @return {@link JSVM_OK } on success, {@link JSVM_INVALID_ARG } for invalid
+ *         arguments, or {@link JSVM_GENERIC_FAILURE } if allocation fails.
+ * @since 26
+ */
+JSVM_EXTERN JSVM_Status OH_JSVM_CreateSharedArrayBuffer(JSVM_Env env,
+                                                        size_t byteLength,
+                                                        void** data,
+                                                        JSVM_Value* result);
+
+/**
+ * @brief Checks whether a value is a JavaScript SharedArrayBuffer.
+ *
+ * @param env The environment that the API is invoked under.
+ * @param value The JavaScript value to check.
+ * @param result Receives true when value is a SharedArrayBuffer.
+ * @return {@link JSVM_OK } on success or {@link JSVM_INVALID_ARG } for invalid arguments.
+ * @since 26
+ */
+JSVM_EXTERN JSVM_Status OH_JSVM_IsSharedArrayBuffer(JSVM_Env env, JSVM_Value value, bool* result);
+
+/**
+ * @brief Gets information from a JavaScript SharedArrayBuffer.
+ *
+ * All output parameters are optional.
+ *
+ * @param env The environment that the API is invoked under.
+ * @param sharedArrayBuffer The SharedArrayBuffer to inspect.
+ * @param data Optional output for the backing-store data address.
+ * @param byteLength Optional output for the current length in bytes.
+ * @param maxByteLength Optional output for the maximum length in bytes.
+ * @return {@link JSVM_OK } on success or {@link JSVM_INVALID_ARG } if the value
+ *         is not a SharedArrayBuffer or an argument is invalid.
+ * @since 26
+ */
+JSVM_EXTERN JSVM_Status OH_JSVM_GetSharedArrayBufferInfo(JSVM_Env env,
+                                                         JSVM_Value sharedArrayBuffer,
+                                                         void** data,
+                                                         size_t* byteLength,
+                                                         size_t* maxByteLength);
+
+/**
+ * @brief Acquires the backing store of a SharedArrayBuffer.
+ *
+ * The returned handle owns a shared reference and remains valid after the
+ * source SharedArrayBuffer or its JSVM instance is destroyed. Release it with
+ * OH_JSVM_ReleaseBackingStore.
+ *
+ * @param env The environment that owns sharedArrayBuffer.
+ * @param sharedArrayBuffer The SharedArrayBuffer whose backing store is acquired.
+ * @param result Receives a new VM-independent backing-store handle.
+ * @return {@link JSVM_OK } on success, {@link JSVM_INVALID_ARG } for invalid
+ *         arguments, or {@link JSVM_GENERIC_FAILURE } if the handle cannot be allocated.
+ * @since 26
+ */
+JSVM_EXTERN JSVM_Status OH_JSVM_GetSharedArrayBufferBackingStore(JSVM_Env env,
+                                                                 JSVM_Value sharedArrayBuffer,
+                                                                 JSVM_BackingStore* result);
+
+/**
+ * @brief Creates an independent native handle that shares ownership of a backing store.
+ *
+ * @param backingStore The backing-store handle to retain.
+ * @param result Receives a new handle. It must be released independently.
+ * @return {@link JSVM_OK } on success, {@link JSVM_INVALID_ARG } for invalid
+ *         arguments, or {@link JSVM_GENERIC_FAILURE } if the handle cannot be allocated.
+ * @since 26
+ */
+JSVM_EXTERN JSVM_Status OH_JSVM_RetainBackingStore(JSVM_BackingStore backingStore,
+                                                    JSVM_BackingStore* result);
+
+/**
+ * @brief Releases one native backing-store handle.
+ *
+ * JavaScript ArrayBuffer objects and other native handles that reference the
+ * same backing store remain valid.
+ *
+ * @param backingStore The handle to release.
+ * @return {@link JSVM_OK } on success or {@link JSVM_INVALID_ARG } if backingStore is NULL.
+ * @since 26
+ */
+JSVM_EXTERN JSVM_Status OH_JSVM_ReleaseBackingStore(JSVM_BackingStore backingStore);
+
+/**
+ * @brief Gets information directly from a VM-independent backing-store handle.
+ *
+ * All output parameters are optional.
+ *
+ * @param backingStore The backing store to inspect.
+ * @param data Optional output for the data address.
+ * @param byteLength Optional output for the current length in bytes.
+ * @param maxByteLength Optional output for the maximum length in bytes.
+ * @param isShared Optional output indicating whether this is shared storage.
+ * @param isResizable Optional output indicating whether JavaScript can resize or grow it.
+ * @return {@link JSVM_OK } on success or {@link JSVM_INVALID_ARG } for an invalid handle.
+ * @since 26
+ */
+JSVM_EXTERN JSVM_Status OH_JSVM_GetBackingStoreInfo(JSVM_BackingStore backingStore,
+                                                    void** data,
+                                                    size_t* byteLength,
+                                                    size_t* maxByteLength,
+                                                    bool* isShared,
+                                                    bool* isResizable);
+
+/**
+ * @brief Creates a SharedArrayBuffer in an environment using an existing shared backing store.
+ *
+ * The new SharedArrayBuffer and backingStore share ownership of the same memory.
+ * This function does not consume backingStore.
+ *
+ * @param env The target environment.
+ * @param backingStore A backing store for which isShared is true.
+ * @param result Receives the new SharedArrayBuffer.
+ * @return {@link JSVM_OK } on success or {@link JSVM_INVALID_ARG } if an argument
+ *         is invalid or backingStore is not shared.
+ * @since 26
+ */
+JSVM_EXTERN JSVM_Status OH_JSVM_CreateSharedArrayBufferFromBackingStore(JSVM_Env env,
+                                                                        JSVM_BackingStore backingStore,
+                                                                        JSVM_Value* result);
 #endif // JSVM_EXPERIMENTAL
 
 // clang-format on

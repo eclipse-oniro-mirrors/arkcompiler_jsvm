@@ -1884,6 +1884,91 @@ HWTEST_F(JSVMTest, JSVMCreateRegExp, TestSize.Level1)
     JSVMTEST_CALL(OH_JSVM_CloseHandleScope(env, handle));
 }
 
+HWTEST_F(JSVMTest, SharedArrayBuffer_BasicAndViews, TestSize.Level1)
+{
+    constexpr size_t bufferSize = 64;
+    void* data = nullptr;
+    JSVM_Value sab = nullptr;
+    JSVMTEST_CALL(OH_JSVM_CreateSharedArrayBuffer(env, bufferSize, &data, &sab));
+    ASSERT_NE(data, nullptr);
+
+    bool isSharedArrayBuffer = false;
+    JSVMTEST_CALL(OH_JSVM_IsSharedArrayBuffer(env, sab, &isSharedArrayBuffer));
+    ASSERT_TRUE(isSharedArrayBuffer);
+
+    bool isArrayBuffer = true;
+    JSVMTEST_CALL(OH_JSVM_IsArraybuffer(env, sab, &isArrayBuffer));
+    ASSERT_FALSE(isArrayBuffer);
+
+    void* infoData = nullptr;
+    size_t byteLength = 0;
+    size_t maxByteLength = 0;
+    JSVMTEST_CALL(OH_JSVM_GetSharedArrayBufferInfo(env, sab, &infoData, &byteLength, &maxByteLength));
+    ASSERT_EQ(infoData, data);
+    ASSERT_EQ(byteLength, bufferSize);
+    ASSERT_EQ(maxByteLength, bufferSize);
+
+    auto* bytes = static_cast<uint8_t*>(data);
+    bytes[0] = 0x2A;
+
+    JSVM_Value typedArray = nullptr;
+    JSVMTEST_CALL(OH_JSVM_CreateTypedarray(env, JSVM_UINT8_ARRAY, bufferSize, sab, 0, &typedArray));
+    bool isTypedArray = false;
+    JSVMTEST_CALL(OH_JSVM_IsTypedarray(env, typedArray, &isTypedArray));
+    ASSERT_TRUE(isTypedArray);
+
+    JSVM_Value dataView = nullptr;
+    JSVMTEST_CALL(OH_JSVM_CreateDataview(env, bufferSize, sab, 0, &dataView));
+    bool isDataView = false;
+    JSVMTEST_CALL(OH_JSVM_IsDataview(env, dataView, &isDataView));
+    ASSERT_TRUE(isDataView);
+
+    JSVM_BackingStore backingStore = nullptr;
+    JSVMTEST_CALL(OH_JSVM_GetSharedArrayBufferBackingStore(env, sab, &backingStore));
+    ASSERT_NE(backingStore, nullptr);
+
+    void* backingData = nullptr;
+    bool backingIsShared = false;
+    bool backingIsResizable = true;
+    ASSERT_EQ(OH_JSVM_GetBackingStoreInfo(backingStore,
+                                         &backingData,
+                                         &byteLength,
+                                         &maxByteLength,
+                                         &backingIsShared,
+                                         &backingIsResizable),
+              JSVM_OK);
+    ASSERT_EQ(backingData, data);
+    ASSERT_EQ(byteLength, bufferSize);
+    ASSERT_TRUE(backingIsShared);
+    ASSERT_FALSE(backingIsResizable);
+
+    JSVM_BackingStore retainedStore = nullptr;
+    ASSERT_EQ(OH_JSVM_RetainBackingStore(backingStore, &retainedStore), JSVM_OK);
+
+    JSVM_Value secondSab = nullptr;
+    JSVMTEST_CALL(OH_JSVM_CreateSharedArrayBufferFromBackingStore(env, retainedStore, &secondSab));
+    void* secondData = nullptr;
+    JSVMTEST_CALL(OH_JSVM_GetSharedArrayBufferInfo(env, secondSab, &secondData, nullptr, nullptr));
+    ASSERT_EQ(secondData, data);
+    ASSERT_EQ(static_cast<uint8_t*>(secondData)[0], 0x2A);
+
+    ASSERT_EQ(OH_JSVM_ReleaseBackingStore(retainedStore), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_ReleaseBackingStore(backingStore), JSVM_OK);
+}
+
+HWTEST_F(JSVMTest, SharedArrayBuffer_InvalidArguments, TestSize.Level1)
+{
+    JSVM_Value value = nullptr;
+    JSVMTEST_CALL(OH_JSVM_CreateObject(env, &value));
+
+    JSVM_BackingStore backingStore = nullptr;
+    ASSERT_EQ(OH_JSVM_GetSharedArrayBufferBackingStore(env, value, &backingStore), JSVM_INVALID_ARG);
+    ASSERT_EQ(OH_JSVM_CreateSharedArrayBufferFromBackingStore(env, nullptr, &value), JSVM_INVALID_ARG);
+    ASSERT_EQ(OH_JSVM_RetainBackingStore(nullptr, &backingStore), JSVM_INVALID_ARG);
+    ASSERT_EQ(OH_JSVM_ReleaseBackingStore(nullptr), JSVM_INVALID_ARG);
+    ASSERT_EQ(OH_JSVM_GetBackingStoreInfo(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr), JSVM_INVALID_ARG);
+}
+
 // OH_JSVM_CreateArrayBufferFromExternalMemory tests
 HWTEST_F(JSVMTest, ExternalArrayBuffer_Basic, TestSize.Level1)
 {
@@ -2296,6 +2381,82 @@ public:
     }
     static void TearDownTestCase() {}
 };
+
+HWTEST_F(JSVMNoScopeTest, SharedArrayBufferBackingStoreSurvivesSourceVM, TestSize.Level1)
+{
+    constexpr size_t bufferSize = 32;
+    constexpr uint8_t marker = 0x5A;
+    JSVM_BackingStore backingStore = nullptr;
+    void* sourceData = nullptr;
+
+    JSVM_VM sourceVm = nullptr;
+    JSVM_Env sourceEnv = nullptr;
+    JSVM_VMScope sourceVmScope = nullptr;
+    JSVM_EnvScope sourceEnvScope = nullptr;
+    JSVM_HandleScope sourceHandleScope = nullptr;
+    ASSERT_EQ(OH_JSVM_CreateVM(nullptr, &sourceVm), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_OpenVMScope(sourceVm, &sourceVmScope), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_CreateEnv(sourceVm, 0, nullptr, &sourceEnv), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_OpenEnvScope(sourceEnv, &sourceEnvScope), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_OpenHandleScope(sourceEnv, &sourceHandleScope), JSVM_OK);
+
+    JSVM_Value sourceSab = nullptr;
+    ASSERT_EQ(OH_JSVM_CreateSharedArrayBuffer(sourceEnv, bufferSize, &sourceData, &sourceSab), JSVM_OK);
+    ASSERT_NE(sourceData, nullptr);
+    static_cast<uint8_t*>(sourceData)[0] = marker;
+    ASSERT_EQ(OH_JSVM_GetSharedArrayBufferBackingStore(sourceEnv, sourceSab, &backingStore), JSVM_OK);
+
+    ASSERT_EQ(OH_JSVM_CloseHandleScope(sourceEnv, sourceHandleScope), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_CloseEnvScope(sourceEnv, sourceEnvScope), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_DestroyEnv(sourceEnv), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_CloseVMScope(sourceVm, sourceVmScope), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_DestroyVM(sourceVm), JSVM_OK);
+
+    void* survivingData = nullptr;
+    size_t survivingLength = 0;
+    bool isShared = false;
+    ASSERT_EQ(OH_JSVM_GetBackingStoreInfo(
+                  backingStore, &survivingData, &survivingLength, nullptr, &isShared, nullptr),
+              JSVM_OK);
+    ASSERT_EQ(survivingData, sourceData);
+    ASSERT_EQ(survivingLength, bufferSize);
+    ASSERT_TRUE(isShared);
+    ASSERT_EQ(static_cast<uint8_t*>(survivingData)[0], marker);
+
+    JSVM_VM targetVm = nullptr;
+    JSVM_Env targetEnv = nullptr;
+    JSVM_VMScope targetVmScope = nullptr;
+    JSVM_EnvScope targetEnvScope = nullptr;
+    JSVM_HandleScope targetHandleScope = nullptr;
+    ASSERT_EQ(OH_JSVM_CreateVM(nullptr, &targetVm), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_OpenVMScope(targetVm, &targetVmScope), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_CreateEnv(targetVm, 0, nullptr, &targetEnv), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_OpenEnvScope(targetEnv, &targetEnvScope), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_OpenHandleScope(targetEnv, &targetHandleScope), JSVM_OK);
+
+    JSVM_Value targetSab = nullptr;
+    ASSERT_EQ(OH_JSVM_CreateSharedArrayBufferFromBackingStore(targetEnv, backingStore, &targetSab), JSVM_OK);
+    void* targetData = nullptr;
+    ASSERT_EQ(OH_JSVM_GetSharedArrayBufferInfo(targetEnv, targetSab, &targetData, nullptr, nullptr), JSVM_OK);
+    ASSERT_EQ(targetData, sourceData);
+    ASSERT_EQ(static_cast<uint8_t*>(targetData)[0], marker);
+
+    // Releasing the native handle must not invalidate the target SAB, which now
+    // owns its own shared_ptr reference.
+    ASSERT_EQ(OH_JSVM_ReleaseBackingStore(backingStore), JSVM_OK);
+    backingStore = nullptr;
+    static_cast<uint8_t*>(targetData)[1] = marker;
+    void* targetDataAfterRelease = nullptr;
+    ASSERT_EQ(OH_JSVM_GetSharedArrayBufferInfo(targetEnv, targetSab, &targetDataAfterRelease, nullptr, nullptr),
+              JSVM_OK);
+    ASSERT_EQ(static_cast<uint8_t*>(targetDataAfterRelease)[1], marker);
+
+    ASSERT_EQ(OH_JSVM_CloseHandleScope(targetEnv, targetHandleScope), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_CloseEnvScope(targetEnv, targetEnvScope), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_DestroyEnv(targetEnv), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_CloseVMScope(targetVm, targetVmScope), JSVM_OK);
+    ASSERT_EQ(OH_JSVM_DestroyVM(targetVm), JSVM_OK);
+}
 
 // Test: EnvScope without VMScope — full API usage including property operations.
 // VMScope (Isolate::Enter) sets TLS; without it, TLS isolate is null.
