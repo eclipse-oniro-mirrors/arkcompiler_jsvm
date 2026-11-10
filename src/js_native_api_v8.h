@@ -168,6 +168,10 @@ inline JSVM_Status SetLastError(JSVM_Env env,
         RETURN_STATUS_IF_FALSE((env), ((length) == JSVM_AUTO_LENGTH) || (length) <= INT_MAX, JSVM_INVALID_ARG); \
     } while (0)
 
+// Use subtraction-style bounds checks: `length * sizeOfElement + byteOffset` can wrap
+// around SIZE_MAX, bypass this check, and later trip an internal V8 CHECK (process
+// termination) or create an out-of-bounds view on a resizable ArrayBuffer, instead of
+// returning a RangeError.
 #define CREATE_TYPED_ARRAY(env, type, sizeOfElement, buffer, byteOffset, length, out)                          \
     do {                                                                                                       \
         if ((sizeOfElement) > 1) {                                                                             \
@@ -175,7 +179,10 @@ inline JSVM_Status SetLastError(JSVM_Env env,
                                        "ERR_JSVM_INVALID_TYPEDARRAY_ALIGNMENT",                                \
                                        "start offset of " #type " should be a multiple of " #sizeOfElement);   \
         }                                                                                                      \
-        THROW_RANGE_ERROR_IF_FALSE((env), (length) * (sizeOfElement) + (byteOffset) <= (buffer)->ByteLength(), \
+        size_t bufferByteLength = (buffer)->ByteLength();                                                      \
+        THROW_RANGE_ERROR_IF_FALSE((env),                                                                      \
+                                   (byteOffset) <= bufferByteLength &&                                         \
+                                   (length) <= (bufferByteLength - (byteOffset)) / (sizeOfElement),            \
                                    "ERR_JSVM_INVALID_TYPEDARRAY_LENGTH", "Invalid typed array length");        \
         (out) = v8::type::New((buffer), (byteOffset), (length));                                               \
     } while (0)
