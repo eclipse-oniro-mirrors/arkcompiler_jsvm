@@ -21,6 +21,7 @@
 #include <list>
 #include <securec.h>
 #include <memory>
+#include <mutex>
 #include <new>
 #include <sstream>
 #include <unistd.h>
@@ -263,6 +264,7 @@ static std::unique_ptr<v8::Platform> g_platform = v8::platform::NewDefaultPlatfo
 static std::vector<intptr_t> externalReferenceRegistry;
 
 static std::unordered_map<std::string, std::string> sourceMapUrlMap;
+static std::mutex sourceMapUrlMapMutex;
 
 static std::unique_ptr<std::stringstream> g_trace_stream;
 
@@ -290,6 +292,7 @@ static inline v8::ArrayBuffer::Allocator* GetOrCreateDefaultArrayBufferAllocator
 
 static void SetFileToSourceMapMapping(std::string&& file, std::string&& sourceMapUrl)
 {
+    std::lock_guard<std::mutex> lock(sourceMapUrlMapMutex);
     auto it = sourceMapUrlMap.find(file);
     if (it == sourceMapUrlMap.end()) {
         sourceMapUrlMap.emplace(file, sourceMapUrl);
@@ -301,6 +304,7 @@ static void SetFileToSourceMapMapping(std::string&& file, std::string&& sourceMa
 
 static std::string GetSourceMapFromFileName(std::string&& file)
 {
+    std::lock_guard<std::mutex> lock(sourceMapUrlMapMutex);
     auto it = sourceMapUrlMap.find(file);
     if (it != sourceMapUrlMap.end()) {
         return it->second;
