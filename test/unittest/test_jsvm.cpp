@@ -2107,6 +2107,48 @@ HWTEST_F(JSVMTest, ExternalArrayBuffer_TypedArrayView, TestSize.Level1)
     jsvm::SetProperty(jsvm::Global(), "_ta", jsvm::Undefined());
 }
 
+HWTEST_F(JSVMTest, CreateTypedarray_LengthOffsetOverflowRejected, TestSize.Level1)
+{
+    constexpr size_t bufferSize = 64;
+    void* data = nullptr;
+    JSVM_Value ab = nullptr;
+    JSVMTEST_CALL(OH_JSVM_CreateArraybuffer(env, bufferSize, &data, &ab));
+
+    // `length * elementSize + byteOffset` wraps around SIZE_MAX for these
+    // arguments and must be rejected instead of reaching V8 (fatal abort) or
+    // creating an out-of-bounds view.
+    const size_t mulWrapLength = SIZE_MAX / 8 + 1; // 2^61: length * 8 == 2^64 == 0 (mod 2^64)
+    const size_t addWrapOffset = SIZE_MAX - 7;     // 1 * 8 + (SIZE_MAX - 7) == 0 (mod 2^64)
+
+    auto assertRejected = [&](JSVM_TypedarrayType type, size_t length, size_t byteOffset) {
+        JSVM_Value typedArray = nullptr;
+        ASSERT_EQ(OH_JSVM_CreateTypedarray(env, type, length, ab, byteOffset, &typedArray), JSVM_GENERIC_FAILURE);
+        bool isExceptionPending = false;
+        JSVMTEST_CALL(OH_JSVM_IsExceptionPending(env, &isExceptionPending));
+        ASSERT_TRUE(isExceptionPending);
+        JSVM_Value exception = nullptr;
+        JSVMTEST_CALL(OH_JSVM_GetAndClearLastException(env, &exception));
+        ASSERT_NE(exception, nullptr);
+    };
+    assertRejected(JSVM_FLOAT64_ARRAY, mulWrapLength, 0);
+    assertRejected(JSVM_FLOAT64_ARRAY, 1, addWrapOffset);
+    assertRejected(JSVM_UINT8_ARRAY, SIZE_MAX, 1);
+    assertRejected(JSVM_UINT8_ARRAY, bufferSize + 1, 0);
+    assertRejected(JSVM_UINT8_ARRAY, 1, bufferSize + 1);
+
+    // Valid creations still succeed, including the empty view at the end of the buffer
+    JSVM_Value typedArray = nullptr;
+    JSVMTEST_CALL(OH_JSVM_CreateTypedarray(env, JSVM_FLOAT64_ARRAY, bufferSize / 8, ab, 0, &typedArray));
+    bool isTypedArray = false;
+    JSVMTEST_CALL(OH_JSVM_IsTypedarray(env, typedArray, &isTypedArray));
+    ASSERT_TRUE(isTypedArray);
+
+    JSVM_Value emptyView = nullptr;
+    JSVMTEST_CALL(OH_JSVM_CreateTypedarray(env, JSVM_FLOAT64_ARRAY, 0, ab, bufferSize, &emptyView));
+    JSVMTEST_CALL(OH_JSVM_IsTypedarray(env, emptyView, &isTypedArray));
+    ASSERT_TRUE(isTypedArray);
+}
+
 // Verify isCopied flag and zero-copy vs copy behavior
 HWTEST_F(JSVMTest, ExternalArrayBuffer_ZeroCopyVerification, TestSize.Level1)
 {
