@@ -147,7 +147,10 @@ do_opt_process() {
 do_man_process $@
 
 # Generate depfile for GN: list all source and header files as dependencies
-# so GN knows to re-run this action when any source file changes.
+# so Ninja knows to re-run this action when any source file changes.
+# Per "gn help depfile", the file uses Make format and every path (the output
+# key and all dependencies) must be relative to the root_build_dir
+# which is also the cwd Ninja runs this action from
 if [ -n "${DEPFILE}" ] && [ -n "${JSVM_PATH}" ] && [ -n "${TARGET_GEN_DIR}" ]; then
     if [[ "${IS_ASAN}" = "true" && "${USE_HWASEN}" = "true" ]]; then
         output_so="${TARGET_GEN_DIR}/asan/libjsvm.so"
@@ -161,5 +164,12 @@ if [ -n "${DEPFILE}" ] && [ -n "${JSVM_PATH}" ] && [ -n "${TARGET_GEN_DIR}" ]; t
         \( -name "*.cpp" -o -name "*.h" \) -type f 2>/dev/null | tr '\n' ' ')
     deps="${deps} ${JSVM_PATH}/CMakeLists.txt ${JSVM_PATH}/jsvm.gni"
     deps="${deps} ${JSVM_PATH}/build_jsvm.sh ${JSVM_PATH}/build_jsvm_inter.sh"
+    # The OpenHarmony GN fork returns absolute paths from rebase_path(), so
+    # JSVM_PATH and the find results above are absolute here. Rebase every
+    # dependency onto the cwd (= root build directory) as the depfile spec
+    # requires: absolute paths would keep pointing at the old location and
+    # silently skip rebuilds once the workspace is moved to another path.
+    # The conversion is idempotent for already-relative inputs.
+    deps=$(python3 -c 'import os, sys; print(" ".join(os.path.relpath(p) for p in sys.argv[1:]))' ${deps})
     echo "${output_so}: ${deps}" > "${DEPFILE}"
 fi
